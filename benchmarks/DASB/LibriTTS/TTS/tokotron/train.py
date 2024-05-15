@@ -630,6 +630,7 @@ if __name__ == "__main__":
 
     # Data preparation, to be run on only one process.
     if not hparams["skip_prep"]:
+        extract_features = ["audio_tokens", "spk_emb"] if not hparams["skip_extract_features"] else None
         with hparams["freezer"]:
             run_on_main(
                 prepare_libritts,
@@ -644,7 +645,7 @@ if __name__ == "__main__":
                     "train_split": hparams["train_split"],
                     "valid_split": hparams["valid_split"],
                     "test_split": hparams["test_split"],
-                    "extract_features": ["audio_tokens", "spk_emb"],
+                    "extract_features": extract_features,
                     "seed": hparams["seed"],
                     "extract_features_opts": hparams["extract_features_opts"],
                     "model_name": hparams["model"].__class__.__name__,
