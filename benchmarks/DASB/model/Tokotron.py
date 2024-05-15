@@ -17,7 +17,6 @@ from torch.nn import functional as F
 from speechbrain.lobes.models.transformer.Transformer import (
     TransformerEncoder,
     TransformerDecoder,
-    PositionalEncoding,
     get_lookahead_mask,
 )
 from speechbrain.dataio.dataio import clean_padding_
@@ -197,8 +196,8 @@ class TokotronTransformerDecoder(nn.Module):
                 normalized=True,
                 d_model=d_model,
             )
-        self.positional_encoding = PositionalEncoding(
-            d_model, max_decoder_steps
+        self.positional_encoding = ShiftedPositionalEncoding(
+            d_model
         )
         if target_dropout is None:
             target_dropout = dropout
@@ -230,6 +229,7 @@ class TokotronTransformerDecoder(nn.Module):
         src_key_padding_mask=None,
         tgt_length=None,
         tgt_key_padding_mask=None,
+        tgt_offset=None,
         pos_embs_src=None,
     ):
         if src_length is not None and src_key_padding_mask is None:
@@ -263,7 +263,8 @@ class TokotronTransformerDecoder(nn.Module):
         if self.attention_type == "RelPosMHAXL":
             pos_embs_tgt = self.positional_encoding(tgt)
         else:
-            tgt = tgt + self.positional_encoding(tgt)
+            offset = get_offset(tgt, tgt_offset, tgt_length)
+            tgt = tgt + self.positional_encoding(tgt, offset)
             pos_embs_tgt = None
         (dec_out, dec_self_attn, dec_attn,) = self.dec(
             tgt=tgt,
@@ -285,6 +286,7 @@ class TokotronTransformerDecoder(nn.Module):
         src_key_padding_mask=None,
         tgt_length=None,
         tgt_key_padding_mask=None,
+        tgt_offset=None,
         pos_embs_src=None,
     ):
         """Computes the forward pass, for training
@@ -299,6 +301,8 @@ class TokotronTransformerDecoder(nn.Module):
             The relative lengths of the source sequence
         tgt_length : torch.Tensor
             Target lengths
+        tgt_offset : torch.Tensor
+            Relative target offsets
         pos_embs_src : dict
             Source positional embeddings
         """
@@ -311,6 +315,7 @@ class TokotronTransformerDecoder(nn.Module):
             src_key_padding_mask,
             tgt_length,
             tgt_key_padding_mask,
+            tgt_offset,
             pos_embs_src,
         )
         lin_out = self.out_proj(dec_out)
@@ -1036,8 +1041,8 @@ class TokotronTransformerModel(nn.Module):
         if attention_type == "RelPosMHAXL":
             self.positional_encoding = RelPosEncXL(d_model)
         else:
-            self.positional_encoding = PositionalEncoding(
-                d_model, max_audio_length
+            self.positional_encoding = ShiftedPositionalEncoding(
+                d_model
             )
         self.compression_model = compression_model
 
@@ -1151,7 +1156,14 @@ class TokotronTransformerModel(nn.Module):
         self.decoder.show_inference_progress = value
 
     def forward(
-        self, input_tokens, input_length, audio_tokens, audio_length, emb=None
+        self,
+        input_tokens,
+        input_length,
+        audio_tokens,
+        audio_length,
+        input_offset=None,
+        audio_offset=None,
+        emb=None
     ):
         """Computes the forward pass, for training
 
@@ -1166,13 +1178,17 @@ class TokotronTransformerModel(nn.Module):
             a (Batch x Length) tensor of output audio tokens (e.g. encodec)
         audio_length : torch.Tensor
             a 1-D tensor of relative output lengths
+        input_offset : torch.Tensor
+            position offsets for inputs (used with curriculum learning)
+        audio_offset : torch.Tensor
+
         emb : dict
             a [str, tensor] dictionary of embeddings (e.g. speaker, language,
             etc)
         """
 
         src, src_key_padding_mask, pos_embs_encoder = self.process_inputs(
-            input_tokens, input_length
+            input_tokens, input_length, input_offset
         )
         enc_out, enc_self_attn = self.encoder(
             src=src,
@@ -1194,6 +1210,7 @@ class TokotronTransformerModel(nn.Module):
             src_length=input_length,
             src_key_padding_mask=src_key_padding_mask,
             pos_embs_src=pos_embs_encoder,
+            tgt_offset=audio_offset,
         )
         return TokotronOutput(
             out=dec_out.out,
@@ -1222,7 +1239,7 @@ class TokotronTransformerModel(nn.Module):
                 result = result + emb_proj.unsqueeze(1)
         return result
 
-    def process_inputs(self, input_tokens, input_length):
+    def process_inputs(self, input_tokens, input_length, input_offset=None):
         """Computes embeddings, the padding mask and encoder
         positional embeddings
 
@@ -1233,6 +1250,7 @@ class TokotronTransformerModel(nn.Module):
             characters or phonemes
         input_length : torch.Tensor
             a 1-D tensor of relative input lengths
+        input_offset : torch.Tensor, 
 
         Returns
         -------
@@ -1249,8 +1267,14 @@ class TokotronTransformerModel(nn.Module):
             src = in_emb
             pos_embs_encoder = self.positional_encoding(in_emb)
         else:
+            offset = get_offset(
+                in_emb,
+                input_offset,
+                input_length,
+            )
             src = in_emb + self.positional_encoding(
-                in_emb
+                in_emb,
+                offset
             )  # add the encodings here
             pos_embs_encoder = None
 
@@ -1401,6 +1425,61 @@ def get_gate_targets(lengths, out_len):
         gate_targets, 0.5 / (1.0 - lengths)[:, None], 0.5 / lengths[:, None],
     )
     return gate_targets.float(), gate_weights
+
+
+class ShiftedPositionalEncoding(nn.Module):
+    """A variation of positional emcodings that can be shifted
+    (useful for curriculum learning on partial seauences)
+    PE(pos, 2i)   = sin(pos/(10000^(2i/dmodel)))
+    PE(pos, 2i+1) = cos(pos/(10000^(2i/dmodel)))
+    Arguments
+    ---------
+    input_size: int
+        Embedding dimension.
+
+    Example
+    -------
+    >>> a = torch.rand((8, 120, 512))
+    >>> enc = PositionalEncoding(input_size=a.shape[-1])
+    >>> b = enc(a)
+    >>> b.shape
+    torch.Size([1, 120, 512])
+    """
+
+    def __init__(self, input_size):
+        super().__init__()
+        self.input_size = input_size
+
+    def forward(self, x, shift=None):
+        """
+        Arguments
+        ---------
+        x : tensor
+            Input feature shape (batch, time, fea)
+        shift : tensor
+            A 1-D tensor of the batch size indicating
+            the amount of positions by which embeddings
+        have been shifted
+        """
+        batch_size, seq_len, input_size = x.shape[:3]
+        pe = torch.zeros(batch_size, seq_len, input_size, requires_grad=False, device=x.device)
+        if shift is None:
+            shift = torch.zeros(batch_size, device=x.device)
+        positions = (
+            torch.arange(0, seq_len, device=x.device)
+            .unsqueeze(0)
+            .unsqueeze(-1)
+            .expand(batch_size, seq_len, 1)
+            .float()
+        ) + shift[:, None, None]
+        denominator = torch.exp(
+            torch.arange(0, input_size, 2, device=x.device).float()
+            * -(math.log(10000.0) / input_size)
+        )
+
+        pe[:, :, 0::2] = torch.sin(positions * denominator)
+        pe[:, :, 1::2] = torch.cos(positions * denominator)
+        return pe
 
 
 def get_alignments(attn):
@@ -1945,3 +2024,11 @@ class GuidedAttentionLoss(nn.Module):
         )
         soft_mask[outside] = 0.0
         return soft_mask
+
+
+def get_offset(x, offset_rel, length):
+    if offset_rel is None or length is None:
+        return None
+    length_abs = length * x.size(1)
+    offset_tgt = length_abs * offset_rel
+    return offset_tgt

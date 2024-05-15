@@ -56,6 +56,7 @@ class TokotronBrain(sb.Brain):
         """
         batch = batch.to(self.device)
         tokens, tokens_length = batch.tokens
+        input_offset, audio_offset = self.compute_offsets(batch)
         audio_tokens, audio_tokens_length = batch.audio_tokens_bos
         if self.compression:
             audio_tokens = self.compression_model.compress(audio_tokens)
@@ -64,6 +65,8 @@ class TokotronBrain(sb.Brain):
             input_length=tokens_length,
             audio_tokens=audio_tokens,
             audio_length=audio_tokens_length,
+            input_offset=input_offset,
+            audio_offset=audio_offset,
             emb={
                 "spk": batch.spk_emb.data.squeeze(1)
             }
@@ -233,6 +236,38 @@ class TokotronBrain(sb.Brain):
 
             self.create_samples()
 
+    def compute_offsets(self, batch):
+        """Computes offsets for curriculum learning
+
+        Arguments
+        ---------
+        batch : PaddedBatch
+            This batch object contains all the relevant tensors for computation.
+
+        Returns
+        -------
+        input_offset : torch.Tensor
+            Positional offset for tokens
+        audio_offset : torch.Tensor
+            Positional offsets for audio
+        """
+        input_offset = self.compute_rel_offset(
+            item=batch.tokens,
+            rel_length=batch.char_rel_length,
+            rel_offset=batch.char_rel_offset,
+        )
+        audio_offset = self.compute_rel_offset(
+            item=batch.audio_tokens,
+            rel_length=batch.sig_rel_length,
+            rel_offset=batch.sig_rel_offset,
+        )
+        return input_offset, audio_offset
+
+    def compute_rel_offset(self, item, rel_length, rel_offset, bos_len=1):
+        len_abs = item.lengths * item.data.size(1)
+        len_abs_bos = len_abs + bos_len
+        return ((rel_offset / rel_length) * len_abs + bos_len) / len_abs_bos
+
     def fit_batch(self, batch):
         loss = super().fit_batch(batch)
         if self.hparams.lr_annealing_mode == "step":
@@ -313,7 +348,18 @@ class TokotronBrain(sb.Brain):
 
 
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phonemes"}
-OUTPUT_KEYS = ["uttid", "tokens", "audio_tokens", "audio_tokens_pad", "audio_tokens_bos", "spk_emb"]
+OUTPUT_KEYS = [
+    "uttid",
+    "tokens",
+    "audio_tokens",
+    "audio_tokens_pad",
+    "audio_tokens_bos",
+    "spk_emb",
+    "char_rel_length",
+    "char_rel_offset",
+    "sig_rel_offset",
+    "sig_rel_length",
+]
 
 
 def dataio_prepare(hparams):
