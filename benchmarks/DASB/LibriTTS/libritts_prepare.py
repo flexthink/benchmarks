@@ -8,6 +8,7 @@ Authors
 import json
 import os
 import shutil
+import re
 import random
 import logging
 import torchaudio
@@ -47,6 +48,7 @@ def prepare_libritts(
     model_name=None,
     extract_features=None,
     extract_features_opts=None,
+    alignments_folder=None,
     device="cpu",
 ):
     """
@@ -84,6 +86,8 @@ def prepare_libritts(
         Seed value
     model_name : str
         Model name (used to prepare additional model specific data)
+    alignments_folder : str | path-like
+        The path where alignments are stored
     """
 
     # Setting the seed value
@@ -111,6 +115,7 @@ def prepare_libritts(
         )
         extract_features_folder = Path(save_folder) / "features"
 
+
     # If specific splits are provided, creates data manifest files accordingly
     if train_split:
         wav_list = prepare_split(data_folder, train_split)
@@ -124,6 +129,7 @@ def prepare_libritts(
             extract_features_context,
             extract_features_folder,
             extract_features_opts,
+            alignments_folder,
             device,
         )
     if valid_split:
@@ -138,6 +144,7 @@ def prepare_libritts(
             extract_features_context,
             extract_features_folder,
             extract_features_opts,
+            alignments_folder,
             device,
         )
     if test_split:
@@ -152,12 +159,14 @@ def prepare_libritts(
             extract_features_context,
             extract_features_folder,
             extract_features_opts,
+            alignments_folder,
             device,
         )
 
     if skip(save_json_train, save_json_valid, save_json_test):
         logger.info("Preparation completed.")
         return
+
 
     # If specific splits are not provided, and a list of subsets if provided, creates train, valid, test splits
     # Creates data manifest files according to the data splits
@@ -166,6 +175,7 @@ def prepare_libritts(
         # Random split the signal list into train, valid, and test sets.
         data_split = split_sets(wav_list, split_ratio)
         # Creating json files
+
         create_json(data_split["train"], save_json_train, sample_rate)
         create_json(data_split["valid"], save_json_valid, sample_rate)
         create_json(data_split["test"], save_json_test, sample_rate)
@@ -226,6 +236,36 @@ def prepare_split(data_folder, split_list):
     return wav_list
 
 
+def get_alignment_path(data_folder, alignments_folder, file_name):
+    """Returns the path in the LibriSpeech-Alignments dataset
+    corresponding to the specified file path in LibriSpeech
+
+    Arguments
+    ---------
+    data_folder: str
+        the path to LibriSpeech
+    alignments_folder: str
+        the path to LibriSpeech-Alignments
+    file_name: str
+        the file name within LibriSpeech
+
+    Returns
+    -------
+    file_name: str
+        the alignment file path
+    """
+    file_name = Path(file_name)
+    data_folder = Path(data_folder)
+    file_name_rel = file_name.relative_to(data_folder)
+    data_slice = file_name_rel.parts[0]
+
+    textgrid_folder = file_name_rel.relative_to(Path(data_slice) / "LibriTTS" / data_slice).parent.parent
+    textgrid_file_name = f"{file_name_rel.stem}.TextGrid"
+    textgrid_path = Path(alignments_folder) / data_slice / textgrid_folder / textgrid_file_name
+
+    return textgrid_path
+
+
 def create_json(
     data_folder,
     wav_list,
@@ -236,6 +276,7 @@ def create_json(
     extract_features_context=None,
     extract_features_folder=None,
     extract_features_opts=None,
+    alignments_folder=None,
     device="cpu",
 ):
     """
@@ -258,6 +299,8 @@ def create_json(
         The folder where extracted features will be saved
     extract_features_opts : dict, optional
         Options for feature extraction
+    alignments_folder : str | path-like
+        The path where alignments are stored
     device : str
         Device for to be used for computation (used as required)
 
@@ -267,7 +310,6 @@ def create_json(
 
     # Processes all the wav files in the list
     for wav_file in tqdm(wav_list):
-
         # Reads the signal
         signal, sig_sr = torchaudio.load(wav_file)
         duration = signal.shape[1] / sig_sr
@@ -295,6 +337,19 @@ def create_json(
             os.unlink(wav_file)
             torchaudio.save(wav_file, resampled_signal, sample_rate=sample_rate)
 
+        alignment_data = {}
+        if alignments_folder is not None:
+            alignment_file_name = get_alignment_path(
+                data_folder=data_folder,
+                alignments_folder=alignments_folder,
+                file_name=wav_file,
+            )
+            if alignment_file_name and os.path.isfile(alignment_file_name):
+                alignment_data = parse_alignments(alignment_file_name)
+            else:
+                logger.warn("No alignments found for %s, skipping", wav_file)
+                continue
+
         # Gets the speaker-id from the utterance-id
         spk_id = uttid.split("_")[0]
 
@@ -306,6 +361,7 @@ def create_json(
             "spk_id": spk_id,
             "label": normalized_text,
             "segment": True if "train" in json_file else False,
+            **alignment_data
         }
 
     # Feature Extraction
@@ -326,6 +382,113 @@ def create_json(
         json.dump(json_dict, json_f, indent=2)
 
     logger.info(f"{json_file} successfully created!")
+
+
+def parse_alignments(file_name):
+    """Parses a given LibriSpeech-Alignments TextGrid file and
+    converts the results to the desired format (to be used in JSON
+    metadata)
+
+    Arguments
+    ---------
+    file_name: str
+        the file name of the TextGrid file
+
+    Returns
+    -------
+    details: dict
+        the metadata details
+    """
+    try:
+        import textgrids
+    except ImportError:
+        logger.error(
+            "Parsing LibriSpeech-alignments requires the"
+            "praat-textgrids package"
+        )
+        raise
+
+    text_grid = textgrids.TextGrid()
+    text_grid.read(file_name)
+    word_intervals = [
+        {**word, "label": word["label"].upper()}
+        for word in text_grid.interval_tier_to_array("words")
+    ]
+    phn_intervals = text_grid.interval_tier_to_array("phones")
+    details = {}
+    details.update(intervals_to_dict(word_intervals, "wrd"))
+    phn = intervals_to_dict(phn_intervals, "phn")
+    phn_stress = phn["phn"]
+    phn_nostress = remove_stress_marks(phn_stress)
+    phn["phn"] = phn_nostress
+    phn["phn_stress"] = phn_stress
+    details.update(phn)
+    details["unk_count"] = sum(wrd == "<UNK>" for wrd in details["wrd"])
+
+    return details
+
+
+RE_STRESS_MARK = re.compile(r"\d$")
+
+
+def remove_stress_marks(phn):
+    """Removes stress marks from a phoneme annotation
+
+    Arguments
+    ---------
+    phn: list
+        a list of phoneme annotations with or without stress marks
+
+    Returns
+    -------
+    result: list
+        a list of phoneme annotations without stress marks
+    """
+    return [RE_STRESS_MARK.sub("", item) for item in phn]
+
+
+INTERVAL_MAP = [("label", ""), ("begin", "_start"), ("end", "_end")]
+INTERVAL_EMPTY_LABELS = {"", "sil", "sp", "spn"}
+
+
+def intervals_to_dict(intervals, prefix):
+    """
+    Converts a parsed list of intervals from PRAAT TextGrid
+    to a learning-friendly array
+
+    Arguments
+    ---------
+    intervals: list
+        A list of raw TextGrid intervals, as returned by
+        TextGrid.interval_tier_to_array
+    prefix: str
+        the prefix to add
+
+    Returns
+    -------
+    result: dict
+        A dictionary of the form
+            {
+                "{prefix}": <list of labels>,
+                "{prefix}_start": <list of begin values>,
+                "{prefix}_end": <list of end values>,
+                "{prefix}_count: <number of intervals>
+            }
+
+    """
+    # Remove meaningless labels
+    intervals_clean = [
+        interval
+        for interval in intervals
+        if interval["label"] not in INTERVAL_EMPTY_LABELS
+    ]
+    result = {
+        f"{prefix}{suffix}": [interval[key] for interval in intervals_clean]
+        for key, suffix in INTERVAL_MAP
+    }
+    # This will map space labels to a single one
+    result[f"{prefix}_count"] = len(intervals_clean)
+    return result
 
 
 def skip(*filenames):

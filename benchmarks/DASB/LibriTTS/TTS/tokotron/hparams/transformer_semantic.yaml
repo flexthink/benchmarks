@@ -12,6 +12,7 @@ train_log: !ref <output_folder>/train_log.txt
 
 # Data files
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
+data_folder_alignments: null
 prepare_save_folder: !ref <data_folder>/prepared
 pretrained_model_save_folder: !ref <prepare_save_folder>
 vocoder_model_name: unithifigan-hubert-ms
@@ -39,6 +40,13 @@ progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
 
+# Curriculum Settings
+curriculum_train_mode: full
+curriculum_sorting: random
+curriculum_enabled: True
+
+
+
 freeze_token_model: True
 ssl_model_type: hubert
 token_model_src: facebook/hubert-large-ll60k
@@ -60,7 +68,10 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # Training parameters
 input: text
 number_of_epochs: 1000
-batch_size: 16
+batch_size: 64
+batch_size_mid: 32
+batch_size_large: 16
+batch_size_full: 16
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
 max_grad_norm: 0.01
@@ -360,3 +371,30 @@ progress_report: !new:benchmarks.DASB.utils.tts.TTSProgressReport
     logger: !ref <progress_logger>
     sample_rate: !ref <model_sample_rate>
     eos_threshold: !ref <gate_threshold>
+
+curriculum: !new:benchmarks.DASB.utils.curriculum.Curriculum
+    steps:
+    - epoch: 1
+      min_words: 2
+      max_words: 3
+      num_samples: 25000
+      sorting: !ref <curriculum_sorting>
+    - epoch: 20
+      min_words: 2
+      max_words: 10
+      num_samples: 50000
+      batch_size: !ref <batch_size_mid>
+      sorting: !ref <curriculum_sorting>
+    - epoch: 40
+      min_words: 2
+      max_words: 20
+      num_samples: 100000
+      batch_size: !ref <batch_size_large>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>
+    - epoch: 60
+      sample_mode: full
+      num_samples: 50000
+      batch_size: !ref <batch_size_full>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>

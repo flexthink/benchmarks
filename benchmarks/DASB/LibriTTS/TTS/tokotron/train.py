@@ -28,6 +28,7 @@ from benchmarks.DASB.utils.audio_tokens import (
     use_silence_padding,
     feature_pad_to,
 )
+from benchmarks.DASB.utils.curriculum import CurriculumSpeechDataset, SampleMode
 
 logger = logging.getLogger(__name__)
 
@@ -144,13 +145,50 @@ class TokotronBrain(sb.Brain):
                     ]
                 )
             self.modules.model.init_audio_emb(vocabulary)
-        # Load the compression model only if compression is enables
+        
+        # Curriculum Learning
+        if self.hparams.curriculum_enabled and not self.hparams.overfit_test:
+            self.set_curriculum(stage, epoch)
+
+        # Load the compression model only if compression is enabled
         self.compression = getattr(self.hparams, "compression", False)
         if self.compression:
             self.compression_model = self.hparams.compression_model(
                 run_opts={"device": self.device}
             )
             self.modules.model.compression_model = self.compression_model
+
+    def set_curriculum(self, stage, epoch):
+        """Sets up curriculum learning
+
+        Arguments
+        ---------
+        stage : sb.Stage
+            One of sb.Stage.TRAIN, sb.Stage.VALID, or sb.Stage.TEST.
+        epoch : int
+            The currently-starting epoch. This is passed
+            `None` during the test stage.
+        """
+        step_id, step = self.hparams.curriculum.apply(epoch)
+        sample_mode = SampleMode(
+            step.get("sample_mode", SampleMode.SEGMENT)
+        )
+        if sample_mode == SampleMode.FULL:
+            logger.info(
+                "%s: Curriculum step %d, using sampling full sentences, %s samples",
+                stage.name,
+                step_id,
+                step.get("num_samples"),
+            )
+        else:
+            logger.info(
+                "%s: Curriculum step %d, using sampling with %s-%s words, %s samples",
+                stage.name,
+                step_id,
+                step.get("min_words", 0),
+                step.get("max_words", "unlimited"),
+                step.get("num_samples", "unlimited"),
+            )
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.
@@ -275,6 +313,7 @@ class TokotronBrain(sb.Brain):
 
 
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phonemes"}
+OUTPUT_KEYS = ["uttid", "tokens", "audio_tokens", "audio_tokens_pad", "audio_tokens_bos", "spk_emb"]
 
 
 def dataio_prepare(hparams):
@@ -361,21 +400,33 @@ def dataio_prepare(hparams):
             json_path=data_info[dataset],
             replacements={"data_root": data_folder},
             dynamic_items=dynamic_items,
-            output_keys=[
-                "uttid",
-                "tokens",
-                "audio_tokens_pad",
-                "audio_tokens_bos",
-                "spk_emb"
-            ],
+            output_keys=OUTPUT_KEYS,
         )
-
         add_prepared_features(
             dataset=dynamic_dataset,
             save_path=Path(hparams["prepare_save_folder"]) / "features",
             id_key="uttid",
             features=["audio_tokens", "spk_emb"],
         )
+
+        # Use the curriculum sampler to reduce the dataset's complexity
+        if hparams.get("curriculum_enabled"):
+            curriculum_generator = torch.Generator()
+            curriculum_generator.manual_seed(hparams["seed"])
+            dynamic_dataset = CurriculumSpeechDataset(
+                from_dataset=dynamic_dataset,
+                generator=curriculum_generator,
+                audio_keys=["audio_tokens"],
+                passthrough_keys=["spk_emb"],
+            )
+            dynamic_dataset.set_output_keys(OUTPUT_KEYS)
+            curriculum = hparams["curriculum"]
+            curriculum.bind(dynamic_dataset)
+            curriculum.apply(1)            
+        else:
+            logger.info(
+                "Curriculum sampling is disabled, using the complete dataset"
+            )
 
         datasets[dataset] = dynamic_dataset
         hparams[f"{dataset}_dataloader_opts"]["shuffle"] = False
@@ -584,6 +635,7 @@ if __name__ == "__main__":
                 prepare_libritts,
                 kwargs={
                     "data_folder": hparams["data_folder"],
+                    "alignments_folder": hparams["data_folder_alignments"],
                     "save_folder": hparams["prepare_save_folder"],
                     "save_json_train": hparams["train_json"],
                     "save_json_valid": hparams["valid_json"],
@@ -606,7 +658,7 @@ if __name__ == "__main__":
     # Apply overfit test settings
     datasets = apply_overfit_test(hparams, datasets)
     token_keys = ["audio_tokens_pad", "audio_tokens_bos"]
-
+    
     # Trainer initialization
     tts_brain = TokotronBrain(
         modules=hparams["modules"],
