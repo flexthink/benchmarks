@@ -17,6 +17,7 @@ import logging
 import speechbrain as sb
 import math
 import torch
+import torchaudio
 import sys
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
@@ -172,7 +173,8 @@ class TokotronBrain(sb.Brain):
             The currently-starting epoch. This is passed
             `None` during the test stage.
         """
-        step_id, step = self.hparams.curriculum.apply(epoch)
+        stage_key = stage.name.lower()
+        step_id, step = self.hparams.curriculum[stage_key].apply(epoch)
         sample_mode = SampleMode(
             step.get("sample_mode", SampleMode.SEGMENT)
         )
@@ -339,7 +341,7 @@ class TokotronBrain(sb.Brain):
                             content=item_cut.detach().cpu(),
                             mode="audio",
                             folder="_perfect",
-                            samplerate=self.hparams.model_sample_rate,
+                            samplerate=self.hparams.sample_rate,
                         )
                     self.hparams.progress_logger[
                         "perfect_samples_created"
@@ -347,7 +349,7 @@ class TokotronBrain(sb.Brain):
                     self.hparams.progress_logger.clear()
 
 
-INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phonemes"}
+INPUT_FEATURE_MAP = {"text": "char", "phonemes": "phn"}
 OUTPUT_KEYS = [
     "uttid",
     "tokens",
@@ -355,6 +357,7 @@ OUTPUT_KEYS = [
     "audio_tokens_pad",
     "audio_tokens_bos",
     "spk_emb",
+    "char",
     "char_rel_length",
     "char_rel_offset",
     "sig_rel_offset",
@@ -394,17 +397,20 @@ def dataio_prepare(hparams):
     label_encoder = hparams["label_encoder"]
     input_feature = INPUT_FEATURE_MAP[hparams["input"]]
 
-    @sb.utils.data_pipeline.takes("label")
-    @sb.utils.data_pipeline.provides("label_norm")
-    def text_pipeline(label):
-        """Processes the transcriptions to generate proper labels"""
-        return label.upper()
-
-    @sb.utils.data_pipeline.takes(input_feature)
+    input_feature_key = f"_{input_feature}" if hparams["curriculum_enabled"] else input_feature
+    @sb.utils.data_pipeline.takes(input_feature_key)
     @sb.utils.data_pipeline.provides("tokens")
     def tokens_pipeline(label):
         """Processes the transcriptions to generate proper labels"""
         return label_encoder.encode_sequence_torch(label)
+
+    # TODO: Update curriculum to avoid reading audio
+    def resample_audio(sig):
+        return torchaudio.functional.resample(
+            sig,
+            orig_freq=hparams["sample_rate"],
+            new_freq=hparams["model_sample_rate"],
+        )
 
     use_silence_padding = hparams.get("use_silence_padding", True)
     if use_silence_padding:
@@ -426,7 +432,8 @@ def dataio_prepare(hparams):
         * hparams["bos_index"]
     )
 
-    @sb.utils.data_pipeline.takes("audio_tokens")
+    audio_tokens_key = "_audio_tokens" if hparams["curriculum_enabled"] else "audio_tokens"
+    @sb.utils.data_pipeline.takes(audio_tokens_key)
     @sb.utils.data_pipeline.provides("audio_tokens_pad", "audio_tokens_bos")
     def audio_pipeline(audio_tokens):
         audio_tokens = torch.from_numpy(audio_tokens)
@@ -437,15 +444,14 @@ def dataio_prepare(hparams):
         audio_tokens_bos = torch.cat([audio_bos, audio_tokens_pad], dim=0)
         yield audio_tokens_bos
 
-    dynamic_items = [text_pipeline, tokens_pipeline, audio_pipeline]
+    dynamic_items = [tokens_pipeline, audio_pipeline]
 
     init_sequence_encoder(hparams)
-
+    raw_datasets = {}
     for dataset in data_info:
         dynamic_dataset = sb.dataio.dataset.DynamicItemDataset.from_json(
             json_path=data_info[dataset],
             replacements={"data_root": data_folder},
-            dynamic_items=dynamic_items,
             output_keys=OUTPUT_KEYS,
         )
         add_prepared_features(
@@ -454,6 +460,7 @@ def dataio_prepare(hparams):
             id_key="uttid",
             features=["audio_tokens", "spk_emb"],
         )
+        raw_datasets[dataset] = dynamic_dataset
 
         # Use the curriculum sampler to reduce the dataset's complexity
         if hparams.get("curriculum_enabled"):
@@ -464,9 +471,11 @@ def dataio_prepare(hparams):
                 generator=curriculum_generator,
                 audio_keys=["audio_tokens"],
                 passthrough_keys=["spk_emb"],
+                sample_rate=hparams["model_sample_rate"],
+                process_audio=resample_audio,
             )
             dynamic_dataset.set_output_keys(OUTPUT_KEYS)
-            curriculum = hparams["curriculum"]
+            curriculum = hparams["curriculum"][dataset]
             curriculum.bind(dynamic_dataset)
             curriculum.apply(1)            
         else:
@@ -498,8 +507,27 @@ def dataio_prepare(hparams):
         raise NotImplementedError(
             "sorting must be random, ascending or descending"
         )
+    if hparams["curriculum_enabled"]:        
+        sample_dataset = CurriculumSpeechDataset(
+            from_dataset=raw_datasets["valid"],
+            generator=curriculum_generator,
+            audio_keys=["audio_tokens"],
+            passthrough_keys=["spk_emb"],
+            sample_rate=hparams["model_sample_rate"],
+            process_audio=resample_audio,
+        )
+        curriculum = hparams["curriculum_sample"]
+        curriculum.bind(sample_dataset)
+        curriculum.apply(1)
+        sample_dataset.set_output_keys(OUTPUT_KEYS)
+        datasets["sample"] = sample_dataset
+    else:
+        datasets["sample"] = select_sample(hparams, datasets)
 
-    datasets["sample"] = select_sample(hparams, datasets)
+    for dataset in datasets.values():
+        for dynamic_item in dynamic_items:
+            dataset.add_dynamic_item(dynamic_item)
+
     return datasets, silence_token
 
 

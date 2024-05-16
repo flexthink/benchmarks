@@ -126,7 +126,7 @@ class CurriculumSpeechDataset(DynamicItemDataset):
             or max_words is not None
             or num_samples is not None
         ):
-            self.sample_segments(generator)
+            self.sample_segments(generator=generator)
         self.process_audio = process_audio
         self.setup_pipeline()
         pipeline_outputs = SAMPLE_OUTPUTS + self.audio_keys + self.passthrough_keys
@@ -261,6 +261,7 @@ class CurriculumSpeechDataset(DynamicItemDataset):
     def setup_pipeline(self):
         """Sets up the dynamic pipeline to sample from the dataset
         using the previously generated samples"""
+        import torchaudio
 
         @sb.utils.data_pipeline.takes(
             "id",
@@ -323,6 +324,8 @@ class CurriculumSpeechDataset(DynamicItemDataset):
                 yield 1.
                 yield char
                 yield phn
+                for value in args:
+                    yield value
             else:
                 yield self.sample_word_counts[idx].item()
                 sample_start_idx = self.sample_start_idx[idx]

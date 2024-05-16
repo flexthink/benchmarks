@@ -117,7 +117,7 @@ beam_size: 5
 
 
 # Feature parameters
-sample_rate: 22050
+sample_rate: 24000
 model_sample_rate: 16000
 max_audio_length: 1000
 infer_max_audio_length: !ref <max_audio_length>
@@ -373,7 +373,7 @@ progress_report: !new:benchmarks.DASB.utils.tts.TTSProgressReport
     sample_rate: !ref <model_sample_rate>
     eos_threshold: !ref <gate_threshold>
 
-curriculum: !new:benchmarks.DASB.utils.curriculum.Curriculum
+curriculum_train: !new:benchmarks.DASB.utils.curriculum.Curriculum
     steps:
     - epoch: 1
       min_words: 2
@@ -396,6 +396,74 @@ curriculum: !new:benchmarks.DASB.utils.curriculum.Curriculum
     - epoch: 60
       sample_mode: full
       num_samples: 50000
+      batch_size: !ref <batch_size_full>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>
+
+curriculum_valid: !new:benchmarks.DASB.utils.curriculum.Curriculum
+    steps:
+    - epoch: 1
+      min_words: 2
+      max_words: 3
+      num_samples: 25000
+      sorting: !ref <curriculum_sorting>
+    - epoch: 20
+      min_words: 2
+      max_words: 10
+      num_samples: 50000
+      batch_size: !ref <batch_size_mid>
+      sorting: !ref <curriculum_sorting>
+    - epoch: 40
+      min_words: 2
+      max_words: 20
+      num_samples: 100000
+      batch_size: !ref <batch_size_large>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>
+    - epoch: 60
+      sample_mode: full
+      num_samples: 50000
+      batch_size: !ref <batch_size_full>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>
+
+curriculum_test: !new:benchmarks.DASB.utils.curriculum.Curriculum
+    steps:
+    - epoch: 1
+      sample_mode: full
+      batch_size: !ref <batch_size_full>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>
+
+curriculum:
+    train: !ref <curriculum_train>
+    valid: !ref <curriculum_valid>
+    test: !ref <curriculum_test>
+
+
+curriculum_sample: !new:benchmarks.DASB.utils.curriculum.Curriculum
+    steps:
+    - epoch: 1
+      min_words: 2
+      max_words: 3
+      num_samples: !ref <num_audio_samples>
+      sorting: !ref <curriculum_sorting>
+    - epoch: 20
+      min_words: 2
+      max_words: 10
+      num_samples: !ref <num_audio_samples>
+      batch_size: !ref <batch_size_mid>
+      sorting: !ref <curriculum_sorting>
+    - epoch: 40
+      min_words: 2
+      max_words: 20
+      num_samples: !ref <num_audio_samples>
+      batch_size: !ref <batch_size_large>
+      sorting: !ref <curriculum_sorting>
+      train_mode: !ref <curriculum_train_mode>
+    - epoch: 60
+      sample_mode: full
+      num_samples: !ref <num_audio_samples>
       batch_size: !ref <batch_size_full>
       sorting: !ref <curriculum_sorting>
       train_mode: !ref <curriculum_train_mode>
