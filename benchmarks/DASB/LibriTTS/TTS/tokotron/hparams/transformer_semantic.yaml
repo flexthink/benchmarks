@@ -44,7 +44,7 @@ samples_interval: 5
 curriculum_train_mode: full
 curriculum_sorting: random
 curriculum_enabled: True
-
+curriculum_valid_num_samples: 1000
 
 
 freeze_token_model: True
@@ -286,7 +286,7 @@ inference: !apply:speechbrain.utils.hparams.choice
 
 emb:
   spk:
-    kind: "pretrained"
+    kind: pretrained
     dim: 192
     vocoder: True
 
@@ -380,20 +380,20 @@ curriculum_train: !new:benchmarks.DASB.utils.curriculum.Curriculum
       max_words: 3
       num_samples: 25000
       sorting: !ref <curriculum_sorting>
-    - epoch: 20
+    - epoch: 5
       min_words: 2
       max_words: 10
       num_samples: 50000
       batch_size: !ref <batch_size_mid>
       sorting: !ref <curriculum_sorting>
-    - epoch: 40
+    - epoch: 10
       min_words: 2
       max_words: 20
       num_samples: 100000
       batch_size: !ref <batch_size_large>
       sorting: !ref <curriculum_sorting>
       train_mode: !ref <curriculum_train_mode>
-    - epoch: 60
+    - epoch: 15
       sample_mode: full
       num_samples: 50000
       batch_size: !ref <batch_size_full>
@@ -405,24 +405,24 @@ curriculum_valid: !new:benchmarks.DASB.utils.curriculum.Curriculum
     - epoch: 1
       min_words: 2
       max_words: 3
-      num_samples: 25000
+      num_samples: !ref <curriculum_valid_num_samples>
       sorting: !ref <curriculum_sorting>
-    - epoch: 20
+    - epoch: 5
       min_words: 2
       max_words: 10
-      num_samples: 50000
+      num_samples: !ref <curriculum_valid_num_samples>
       batch_size: !ref <batch_size_mid>
       sorting: !ref <curriculum_sorting>
-    - epoch: 40
+    - epoch: 10
       min_words: 2
       max_words: 20
-      num_samples: 100000
+      num_samples: !ref <curriculum_valid_num_samples>
       batch_size: !ref <batch_size_large>
       sorting: !ref <curriculum_sorting>
       train_mode: !ref <curriculum_train_mode>
-    - epoch: 60
+    - epoch: 15
       sample_mode: full
-      num_samples: 50000
+      num_samples: !ref <curriculum_valid_num_samples>
       batch_size: !ref <batch_size_full>
       sorting: !ref <curriculum_sorting>
       train_mode: !ref <curriculum_train_mode>
