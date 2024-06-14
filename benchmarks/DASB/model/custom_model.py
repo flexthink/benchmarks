@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from ..utils.hparams import as_list
 from speechbrain.dataio.dataio import clean_padding_, length_to_mask
+from speechbrain.inference.vocoders import UnitHIFIGAN
 import math
 import logging
 
@@ -187,6 +188,58 @@ class MultiEmbedding(nn.Module):
         return torch.stack([emb.weight for emb in self.emb])
 
 
+class HierarchicalUnitConverter(nn.Module):
+    """A wrapper for models similar to UnitHiFiGan that combine multiple layers with offsets
+
+    Arguments
+    ---------
+    available_layers : list
+        The list of available layers
+    num_units : int
+        The total number of units/tokens available
+    layers : list
+        The layers that will be used. If omitted, all layers will be used
+    offset : int, optional
+        The offset added globally to all layers
+    """    
+    def __init__(self, available_layers, num_units, layers, offset):
+        super().__init__()
+        self.available_layers = available_layers
+        self.num_units = num_units
+        if layers is None:
+            self.layers = self.available_layers
+        else:
+            self.layers = as_list(layers)
+        layers_set = set(self.layers)
+        available_layers_set = set(available_layers)
+        if not layers_set.issubset(available_layers_set):
+            unavailable_layers = ",".join(
+                str(layer) for layer in (layers_set - available_layers_set)
+            )
+            raise ValueError(f"Layers {unavailable_layers} are not supported")
+
+        self.offset = offset
+        self.register_buffer(
+            "layer_offset",
+            self.compute_offset(),
+            persistent=False
+        )
+
+    def compute_offset(self):
+        """Computes offsets for each layer"""
+        _, layers_idx = torch.where(
+            torch.tensor(self.available_layers).unsqueeze(0)
+            == torch.tensor(self.layers).unsqueeze(1)
+        )
+        offset = torch.tensor(layers_idx) * self.num_units
+        return offset[None, None, :]
+
+    def forward(self, units):
+        return (
+            units + self.layer_offset.to(units.device) + self.offset
+        )
+
+
 class HierarchicalUnitWrapper(torch.nn.Module):
     """A wrapper for models similar to UnitHiFiGan that combine multiple layers with offsets
 
@@ -220,38 +273,18 @@ class HierarchicalUnitWrapper(torch.nn.Module):
             model = model()
         self.model = model
         self.device = next(iter(param for param in model.parameters())).device
-        self.available_layers = as_list(available_layers)
-        if layers is None:
-            self.layers = self.available_layers
-        else:
-            self.layers = as_list(layers)
-        layers_set = set(self.layers)
-        available_layers_set = set(available_layers)
-        if not layers_set.issubset(available_layers_set):
-            unavailable_layers = ",".join(
-                str(layer) for layer in (layers_set - available_layers_set)
-            )
-            raise ValueError(f"Layers {unavailable_layers} are not supported")
-        self.num_units = num_units
-        self.layer_offset = self.compute_offset()
-        self.offset = offset
+        self.unit_converter = HierarchicalUnitConverter(
+            available_layers=available_layers,
+            num_units=num_units,
+            layers=layers,
+            offset=offset,
+        )
         if hasattr(self.model, "tokenize"):
             self.model.tokenize = False
         self.use_length = use_length
 
-    def compute_offset(self):
-        """Computes offsets for each layer"""
-        _, layers_idx = torch.where(
-            torch.tensor(self.available_layers, device=self.device).unsqueeze(0)
-            == torch.tensor(self.layers).unsqueeze(1)
-        )
-        offset = torch.tensor(layers_idx, device=self.device) * self.num_units
-        return offset[None, None, :]
-
     def forward(self, units, length, **kwargs):
-        units_with_offset = (
-            units + self.layer_offset.to(units.device) + self.offset
-        )
+        units_with_offset = self.unit_converter(units)
         if self.use_length:
             result = self.model(units_with_offset, length, **kwargs)
         else:
@@ -604,6 +637,135 @@ class SpeechTokenizerVocoder(nn.Module):
 
     def forward(self, tokens, length=None):
         wav = self.tokenizer.decode(tokens)
+        if length is not None:
+            clean_padding_(wav, length)
+        return wav
+
+
+class GumbelUnitVocoderWrapper(nn.Module):
+    """A wrapper for tokenized vocoders that applies
+    the hard Gumbel Softmax function to allow
+    backpropagation through the vocoder
+
+    Arguments
+    ---------
+
+    model : torch.nn.Module | Pretrained | callable
+        A model
+    available_layers : list
+        The list of available layers
+    num_units : int
+        The total number of units/tokens available
+    layers : list
+        The layers that will be used. If omitted, all layers will be used
+    offset : int, optional
+        The offset added globally to all layers
+    """
+
+    def __init__(
+        self,
+        model,
+        available_layers,
+        num_units,
+        layers=None,
+        offset=0,
+    ):
+        super().__init__()
+        if callable(model) and not isinstance(model, nn.Module):
+            model = model()
+        self.model = model
+        self.model.hparams.generator.skip_token_embedding = True
+        self.unit_embedding = self.model.hparams.generator.unit_embedding
+        self.unit_converter = HierarchicalUnitConverter(
+            available_layers=available_layers,
+            num_units=num_units,
+            layers=layers,
+            offset=offset,
+        )
+
+        self.available_layers = available_layers
+        if layers is None:
+            layers = available_layers
+        self.layers = layers
+        self.num_units = num_units
+        self.offset = offset
+        self.register_buffer(
+            "layer_embs",
+            self.compute_layer_embs(),
+            persistent=False
+        )
+
+    def compute_layer_embs(self):
+        weight = self.unit_embedding.weight
+
+        # Compute offsets
+        layer_idx_map = {
+            layer: idx
+            for idx, layer in enumerate(self.available_layers)
+        }
+        layer_idx = [
+            layer_idx_map[layer]
+            for layer in self.layers
+        ]
+
+        offsets = [
+            idx * self.num_units + self.offset
+            for idx in layer_idx
+        ]
+
+        layer_embs = torch.stack([
+            weight[offset:offset + self.num_units]
+            for offset in offsets
+        ])
+
+        # To (Batch x Length x Emb)
+        layer_embs = layer_embs.unsqueeze(0)
+        return layer_embs
+
+    def forward(self, logits, length=None, spk=None):
+        """Computes waveforms from a batch of discrete units
+        Arguments
+        ---------
+        units: torch.tensor
+            Batch of discrete unit logits [batch, length, head, token]
+            or tokens [batch, length, head]
+        spk: torch.tensor
+            Batch of speaker embeddings [batch, spk_dim]
+        Returns
+        -------
+        waveforms: torch.tensor
+            Batch of mel-waveforms [batch, 1, time]
+        """
+
+        # Check if tokens are provided. If this is the case,
+        # it is a direct pass-through to the vocoder
+        if logits.dim() < 4:
+            return self.decode_units(logits, length, spk=spk)
+
+        # Convert logits to one-hot representations
+        # without losing the gradient
+        units_gumbel = torch.nn.functional.gumbel_softmax(
+            logits,
+            hard=False,
+            dim=-1
+        )
+
+        # Straight-through trick
+        _, argmax_idx = logits.max(dim=-1, keepdim=True)
+        units_ref = torch.zeros_like(logits).scatter_(
+            dim=-1, index=argmax_idx, src=torch.ones_like(logits)
+        )
+        units_hard = units_ref - units_gumbel.detach() + units_gumbel
+
+        # Sum over embeddings for each layer
+        emb = (self.layer_embs * units_hard.unsqueeze(-1)).sum(-2)
+        wav, _ = self.model.hparams.generator(emb, spk=spk)
+        return wav
+
+    def decode_units(self, units, length=None, spk=None):
+        units_with_offset = self.unit_converter(units)
+        emb = self.unit_embedding(units_with_offset)
+        wav = self.model.infer(emb, spk=spk)
         if length is not None:
             clean_padding_(wav, length)
         return wav

@@ -2,7 +2,8 @@
 discrete/tokenized audio representations, available in both
 Transformer and RNN flavours.
 
-NOTE: This model does not use the standard Transformer interface
+NOTE: This model does not use the standa
+rd Transformer interface
 in order to make it usable as both as a full model and as a
 decoder-only model
 
@@ -1121,7 +1122,7 @@ class TokotronTransformerModel(nn.Module):
             audio_token_shift=audio_token_shift,
             multihead_input=self.decoder_mode == DecoderMode.AUTOREGRESSIVE,
             representation_mode=representation_mode,
-            audio_dim=audio_dim,
+            audio_dim=audio_dim
         )
         self.bos_idx = bos_idx
         self.vocoder = vocoder
@@ -1563,7 +1564,7 @@ def get_alignments(attn):
 
 
 TokotronLossDetails = namedtuple(
-    "TokotronLossDetails", ["loss", "seq_loss", "gate_loss", "attn_loss"]
+    "TokotronLossDetails", ["loss", "seq_loss", "gate_loss", "attn_loss", "spk_loss"]
 )
 
 
@@ -1608,6 +1609,9 @@ class TokotronLoss(nn.Module):
     
     audio_tokens_per_step : int
         The number of audio tokens per step
+
+    spk_cost : callable
+        The speaker embedding cost
     
     representation_mode : RepresentationMode
         the type of representations being used (discrete or continuous)
@@ -1629,6 +1633,8 @@ class TokotronLoss(nn.Module):
         eos_index=0,
         eos_width=1,
         audio_tokens_per_step=1,
+        spk_cost=None,
+        spk_weight=0.5,
         representation_mode=RepresentationMode.DISCRETE,
     ):
         super().__init__()
@@ -1651,6 +1657,10 @@ class TokotronLoss(nn.Module):
         self.audio_token_shift = audio_token_shift
         self.eos_index = eos_index
         self.eos_width = eos_width
+        if spk_cost is None:
+            spk_cost = mse_loss
+        self.spk_cost = spk_cost
+        self.spk_weight = spk_weight
         if self.eos_mode == EosMode.TOKEN:
             audio_eos = (
                 torch.ones(eos_width, audio_tokens_per_step).long() * eos_index
@@ -1664,6 +1674,9 @@ class TokotronLoss(nn.Module):
         audio_length,
         input_tokens,
         input_length,
+        spk_pred=None,
+        spk=None,
+        spk_loss=None,
         reduction="mean",
     ):
         """Computes the loss, with details
@@ -1680,6 +1693,10 @@ class TokotronLoss(nn.Module):
             input tokens (text of phonemes)
         input_length : torch.Tensor
             relative lengths of input tokens, for masking
+        spk_pred : torch.Tensor, optional
+            predicted speaker embeddings
+        spk : torch.Tensor
+            ground truth speaker embeddings
         reduction : str
             loss reduction (see speechbrain.nnet.losses)
         """
@@ -1755,12 +1772,37 @@ class TokotronLoss(nn.Module):
                 )
             else:
                 gate_loss = torch.tensor(0.0, device=predictions.out.device)
-        loss = (
-            seq_loss
-            + self.guided_attention_weight * attn_loss
-            + self.gate_weight * gate_loss
+
+        spk_loss = self._compute_spk_cost(
+            spk,
+            spk_pred,
+            reduction=reduction,
+            device=predictions.out.device
         )
-        return TokotronLossDetails(loss, seq_loss, gate_loss, attn_loss)
+        if False:
+            loss = (
+                seq_loss
+                + self.guided_attention_weight * attn_loss
+                + self.gate_weight * gate_loss
+                + self.spk_weight * spk_loss
+            )
+        else:
+            loss = spk_loss
+        return TokotronLossDetails(loss, seq_loss, gate_loss, attn_loss, spk_loss)
+
+    def _compute_spk_cost(self, spk, spk_pred, reduction, device):
+        if spk is not None:
+            mean, std = spk.mean(), spk.std()
+            spk_norm = (spk - mean) / std
+            spk_pred_norm = (spk_pred - mean) / std
+            spk_loss = self.spk_cost(
+                spk_norm,
+                spk_pred_norm,
+                reduction=reduction
+            )
+        else:
+            spk_loss = torch.tensor(0.0, device=device)
+        return spk_loss
 
 
 def _filter_state_dict(state_dict):

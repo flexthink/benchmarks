@@ -157,6 +157,11 @@ gate_offset: !apply:benchmarks.DASB.model.Tokotron.distance_diff_loss_ramp
 silence_padding: !ref <gate_offset>
 use_silence_padding: True
 
+# Guides
+guides_enabled: True
+guides_spk: True
+guides_spk_loss_weight: 0.2
+
 
 # Token model (pretrained)
 ssl_model: !apply:speechbrain.utils.hparams.choice
@@ -280,22 +285,20 @@ attention_type: regularMHA
 
 ############################## models ################################
 
-hifigan: !apply:speechbrain.inference.vocoders.UnitHIFIGAN.from_hparams
-    source: !ref <vocoder_src>
-    savedir: !ref <vocoder_model_path>
+vocoder_layers: !apply:benchmarks.DASB.utils.hparams.as_list
+    value: !apply:speechbrain.utils.hparams.choice
+        value: !ref <select_layers>
+        default: !ref <select_layers>
+        choices:
+            null: !ref <token_model_layers>
+    dtype: int
 
-vocoder_discrete: !name:benchmarks.DASB.model.custom_model.HierarchicalUnitWrapper
+vocoder_discrete: !name:benchmarks.DASB.model.custom_model.GumbelUnitVocoderWrapper
   model: !name:speechbrain.inference.vocoders.UnitHIFIGAN.from_hparams
     source: !ref <vocoder_src>
     savedir: !ref <vocoder_model_path>
   available_layers: !ref <vocoder_available_layers>
-  layers: !apply:benchmarks.DASB.utils.hparams.as_list
-        value: !apply:speechbrain.utils.hparams.choice
-            value: !ref <select_layers>
-            default: !ref <select_layers>
-            choices:
-                null: !ref <token_model_layers>
-        dtype: int
+  layers: !ref <vocoder_layers>
   num_units: !ref <audio_num_tokens>
   offset: !ref <token_offset>
 
@@ -389,6 +392,7 @@ compute_cost: !new:benchmarks.DASB.model.Tokotron.TokotronLoss
     eos_width: !ref <eos_width>
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     audio_token_shift: !ref <audio_token_shift>
+    spk_weight: !ref <guides_spk_loss_weight>
     representation_mode: !ref <representation_mode>
 
 

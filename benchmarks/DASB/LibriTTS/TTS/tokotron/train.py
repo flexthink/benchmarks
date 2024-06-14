@@ -72,7 +72,24 @@ class TokotronBrain(sb.Brain):
             }
         )
 
-        return predictions
+        guides = {}
+
+        if self.hparams.guides_enabled:
+            # Compute the raw waveform. This requires
+            # a differentiable vocoder
+            wav = self.modules.model.vocoder(
+                predictions.out,
+                audio_length
+            )
+            if self.hparams.guides_spk:
+                mel_spec = self.spk_emb_model.mel_spectogram(
+                    audio=wav.squeeze(1))
+                spk_emb_pred = self.spk_emb_model.encode_mel_spectrogram_batch(
+                    mel_spec, audio_length
+                )
+                guides["spk"] = spk_emb_pred
+
+        return predictions, guides
 
     def _get_selected_layer_idx(self):
         selected_layers = None
@@ -128,20 +145,25 @@ class TokotronBrain(sb.Brain):
         if self.compression:
             audio = self.compression_model.compress(audio)
         audio = self.select_layers(audio)
+        tokotron_predictions, guides = predictions
         loss_details = self.hparams.compute_cost(
-            predictions=predictions,
+            predictions=tokotron_predictions,
             audio=audio,
             audio_length=audio_length,
             input_tokens=batch.tokens.data,
             input_length=batch.tokens.lengths,
+            spk_pred=guides.get("spk"),
+            spk=batch.spk_emb.data
         )
         self.loss_metric.append(
             batch.uttid,
-            predictions=predictions,
+            predictions=tokotron_predictions,
             audio=audio,
             audio_length=audio_length,
             input_tokens=batch.tokens.data,
             input_length=batch.tokens.lengths,
+            spk_pred=guides.get("spk"),
+            spk=batch.spk_emb.data,
             reduction="batch",
         )
         return loss_details.loss
@@ -187,6 +209,12 @@ class TokotronBrain(sb.Brain):
                 run_opts={"device": self.device}
             )
             self.modules.model.compression_model = self.compression_model
+        if self.hparams.guides_enabled:
+            if self.hparams.guides_spk:
+                logger.info("Training with the speaker identity guide")
+                self.spk_emb_model = self.hparams.spk_emb_model(
+                    run_opts={"device": self.device}
+                )
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.
