@@ -725,7 +725,7 @@ class GumbelUnitVocoderWrapper(nn.Module):
         ])
 
         # To (Batch x Length x Emb)
-        layer_embs = layer_embs.unsqueeze(0)
+        layer_embs = layer_embs.unsqueeze(0).unsqueeze(0)
         return layer_embs
 
     def forward(self, logits, length=None, spk=None):
