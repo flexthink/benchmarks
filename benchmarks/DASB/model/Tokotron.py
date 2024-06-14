@@ -1779,15 +1779,12 @@ class TokotronLoss(nn.Module):
             reduction=reduction,
             device=predictions.out.device
         )
-        if False:
-            loss = (
-                seq_loss
-                + self.guided_attention_weight * attn_loss
-                + self.gate_weight * gate_loss
-                + self.spk_weight * spk_loss
-            )
-        else:
-            loss = spk_loss
+        loss = (
+            seq_loss
+            + self.guided_attention_weight * attn_loss
+            + self.gate_weight * gate_loss
+            + self.spk_weight * spk_loss
+        )
         return TokotronLossDetails(loss, seq_loss, gate_loss, attn_loss, spk_loss)
 
     def _compute_spk_cost(self, spk, spk_pred, reduction, device):
