@@ -159,6 +159,7 @@ use_silence_padding: True
 
 # Guides
 guides_enabled: True
+guides_start_epoch: 40
 guides_spk: True
 guides_spk_loss_weight: 0.2
 

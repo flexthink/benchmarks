@@ -209,7 +209,7 @@ class TokotronBrain(sb.Brain):
                 run_opts={"device": self.device}
             )
             self.modules.model.compression_model = self.compression_model
-        if self.hparams.guides_enabled:
+        if (self.hparams.guides_enabled and epoch >= self.hparams.guides_start_epoch):
             if self.hparams.guides_spk:
                 logger.info("Training with the speaker identity guide")
                 self.spk_emb_model = self.hparams.spk_emb_model(
