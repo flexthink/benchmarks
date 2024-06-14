@@ -658,6 +658,10 @@ class GumbelUnitVocoderWrapper(nn.Module):
         The total number of units/tokens available
     layers : list
         The layers that will be used. If omitted, all layers will be used
+    chunk_size : int
+        The maximum chunk size for embedding multiplication.
+        The multiplication of the "hard" one-hot tensor by the embedding
+        is memory-consuming, and as a result, will be done in chunks
     offset : int, optional
         The offset added globally to all layers
     """
@@ -668,6 +672,7 @@ class GumbelUnitVocoderWrapper(nn.Module):
         available_layers,
         num_units,
         layers=None,
+        chunk_size=100,
         offset=0,
     ):
         super().__init__()
@@ -689,6 +694,7 @@ class GumbelUnitVocoderWrapper(nn.Module):
         self.layers = layers
         self.num_units = num_units
         self.offset = offset
+        self.chunk_size = chunk_size
         self.register_buffer(
             "layer_embs",
             self.compute_layer_embs(),
@@ -758,7 +764,17 @@ class GumbelUnitVocoderWrapper(nn.Module):
         units_hard = units_ref - units_gumbel.detach() + units_gumbel
 
         # Sum over embeddings for each layer
-        emb = (self.layer_embs * units_hard.unsqueeze(-1)).sum(-2)
+        units_hard_chunked = units_hard.chunk(
+            math.ceil(units_hard.size(1) / self.chunk_size),
+            dim=1
+        )
+        emb = torch.cat(
+            [
+                (self.layer_embs * units_hard_chunk.unsqueeze(-1)).sum(-2)
+                for units_hard_chunk in units_hard_chunked
+            ],
+            dim=1
+        )
         wav, _ = self.model.hparams.generator(emb, spk=spk)
         return wav
 
