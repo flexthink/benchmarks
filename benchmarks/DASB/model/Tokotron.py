@@ -190,9 +190,12 @@ class TokotronTransformerDecoder(nn.Module):
                 normalized=True,
                 d_model=d_model,
             )
-        self.positional_encoding = PositionalEncoding(
-            d_model, max_decoder_steps
-        )
+        if attention_type == "RelPosMHAXL":
+            self.positional_encoding = RelPosEncXL(d_model)
+        else:
+            self.positional_encoding = PositionalEncoding(
+                d_model, max_decoder_steps
+            )
         if target_dropout is None:
             target_dropout = dropout
         self.target_dropout = target_dropout
@@ -279,6 +282,8 @@ class TokotronTransformerDecoder(nn.Module):
 
         tgt_mask = get_lookahead_mask(tgt)
         if self.attention_type == "RelPosMHAXL":
+            if pos_embs_src is None:
+                pos_embs_src = self.positional_encoding(enc_out)
             pos_embs_tgt = self.positional_encoding(tgt)
         else:
             tgt = tgt + self.positional_encoding(tgt)
@@ -1481,7 +1486,11 @@ def get_alignments(attn):
     alignments: torch.Tensor
         The resulting alignments
     """
-    return torch.cat([item.unsqueeze(-1) for item in attn], dim=-1).mean(dim=-1)
+    alignments = torch.cat([item.unsqueeze(-1) for item in attn], dim=-1).mean(dim=-1)
+    # NOTE: Transformer XL provides per-head information
+    if alignments.dim() > 3:
+        alignments = alignments.mean(1)
+    return alignments
 
 
 TokotronLossDetails = namedtuple(
