@@ -192,6 +192,9 @@ class TokotronTransformerDecoder(nn.Module):
             )
         if attention_type == "RelPosMHAXL":
             self.positional_encoding = RelPosEncXL(d_model)
+            self.positional_encoding_abs = PositionalEncoding(
+                d_model, max_decoder_steps
+            )
         else:
             self.positional_encoding = PositionalEncoding(
                 d_model, max_decoder_steps
@@ -285,6 +288,7 @@ class TokotronTransformerDecoder(nn.Module):
             if pos_embs_src is None:
                 pos_embs_src = self.positional_encoding(enc_out)
             pos_embs_tgt = self.positional_encoding(tgt)
+            tgt = tgt + self.positional_encoding_abs(tgt)
         else:
             tgt = tgt + self.positional_encoding(tgt)
             pos_embs_tgt = None
