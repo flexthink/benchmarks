@@ -31,6 +31,7 @@ from speechbrain.dataio.dataio import length_to_mask
 from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
+from speechbrain.inference import EncoderDecoderASR
 
 from enum import Enum
 from collections import namedtuple
@@ -211,8 +212,9 @@ class TokotronTransformerDecoder(nn.Module):
                     n_neurons=audio_emb_size,
                 )
 
-        self.positional_encoding = PositionalEncoding(
-            d_model, max_decoder_steps
+        self.positional_encoding = ShiftedPositionalEncoding(
+            d_model,
+            offset=bos_width,
         )
         if target_dropout is None:
             target_dropout = dropout
@@ -243,6 +245,7 @@ class TokotronTransformerDecoder(nn.Module):
         tgt_length=None,
         tgt_key_padding_mask=None,
         pos_embs_src=None,
+        shift_tgt=None,
     ):
         """Performs a decode step
 
@@ -263,6 +266,8 @@ class TokotronTransformerDecoder(nn.Module):
             The target key padding mask (if pre-computed)
         pos_emb_src : torch.Tensor, optional
             The target positional embeddings
+        shift_tgt : torch.Tensor, optional
+            The position shift
 
         Returns
         -------
@@ -304,7 +309,7 @@ class TokotronTransformerDecoder(nn.Module):
         if self.attention_type == "RelPosMHAXL":
             pos_embs_tgt = self.positional_encoding(tgt)
         else:
-            tgt = tgt + self.positional_encoding(tgt)
+            tgt = tgt + self.positional_encoding(tgt, shift_tgt)
             pos_embs_tgt = None
         # NOTE: Normalization for continuous representations, similar
         # to NormalizedEmbedding
@@ -331,6 +336,7 @@ class TokotronTransformerDecoder(nn.Module):
         tgt_length=None,
         tgt_key_padding_mask=None,
         pos_embs_src=None,
+        shift_tgt=None
     ):
         """Computes the forward pass, for training
 
@@ -346,6 +352,8 @@ class TokotronTransformerDecoder(nn.Module):
             Target lengths
         pos_embs_src : dict
             Source positional embeddings
+        shift_tgt : torch.Tensor, optional
+            The position shift
 
         Returns
         -------
@@ -369,9 +377,9 @@ class TokotronTransformerDecoder(nn.Module):
                 An empty dictionary (not used in this decoder)
         """
         if self.representation_mode == RepresentationMode.DISCRETE:
-            tgt_shift = torch.zeros((1, tgt.size(1), 1), device=tgt.device)
-            tgt_shift[:, self.bos_width :, :] += self.audio_token_shift
-            tgt = tgt + tgt_shift
+            tgt_token_shift = torch.zeros((1, tgt.size(1), 1), device=tgt.device)
+            tgt_token_shift[:, self.bos_width :, :] += self.audio_token_shift
+            tgt = tgt + tgt_token_shift
         dec_out, dec_self_attn, dec_attn = self.decode(
             enc_out,
             tgt,
@@ -380,6 +388,7 @@ class TokotronTransformerDecoder(nn.Module):
             tgt_length,
             tgt_key_padding_mask,
             pos_embs_src,
+            shift_tgt,
         )
         lin_out = self.out_proj(dec_out)
         batch_size, audio_max_len, num_tokens = lin_out.shape
@@ -546,8 +555,9 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
 
                 # The model outputs predictions without BOS. Add the BOS back for the
                 # following step
+  
                 audio = torch.cat([bos, audio_out], dim=1)
-
+                
                 # Find the gate activation of the current step
                 step_gate_out = step_out.gate_out[:, -1]
 
@@ -1029,6 +1039,17 @@ class TokotronTransformerModel(nn.Module):
         the type of representations to be used (discrete or continuous)
     audio_dim : int, optional
         The continuous audio inout dimension
+    use_position_shift : bool, optional
+        Whether to use position shifting. This can be used to avoid situations
+        where the model overfits to shorter lengths
+    position_shift_probability: float, optional
+        The probability of a position shift
+    position_shift_seed : int, optional
+        The random generator seed for the position shift (to make sure
+        that the exact same shifts are used each time the experiment runs
+        regardless of other uses of the global state)
+    max_position_shift : int|float, optional
+        The maximum number of positions by which to shift
     emb : dict, optional
         Available embeddings
 
@@ -1077,6 +1098,10 @@ class TokotronTransformerModel(nn.Module):
         scale_factor=5.0,
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
+        use_position_shift=False,
+        position_shift_probability=0.5,
+        position_shift_seed=42,
+        max_position_shift=1800,
         emb=None,
     ):
         super().__init__()
@@ -1131,8 +1156,8 @@ class TokotronTransformerModel(nn.Module):
         if attention_type == "RelPosMHAXL":
             self.positional_encoding = RelPosEncXL(d_model)
         else:
-            self.positional_encoding = PositionalEncoding(
-                d_model, max_audio_length
+            self.positional_encoding = ShiftedPositionalEncoding(
+                d_model
             )
         self.compression_model = compression_model
 
@@ -1155,6 +1180,11 @@ class TokotronTransformerModel(nn.Module):
         self.scale_factor = scale_factor
         self.representation_mode = RepresentationMode(representation_mode)
         self.audio_dim = audio_dim
+        self.use_position_shift = use_position_shift
+        self.max_position_shift = max_position_shift
+        self.position_shift_generator = torch.Generator()
+        self.position_shift_generator.manual_seed(position_shift_seed)
+        self.position_shift_probability = position_shift_probability
         if emb is not None:
             self.emb_proj = self._build_emb_proj(emb)
             self.vocoder_emb = [
@@ -1230,11 +1260,19 @@ class TokotronTransformerModel(nn.Module):
             * **unexpected_keys** is a list of str containing the unexpected keys
         """
         state_dict = _filter_state_dict(state_dict)
+        position_shift_generator_state = state_dict.get("position_shift_generator")
+        if position_shift_generator_state is not None:
+            self.position_shift_generator.set_state(position_shift_generator_state)
         try:
             return super().load_state_dict(state_dict, strict, assign)
         except TypeError:
             # NOTE: Older versions of PyTorch don't have the assign parameter
             return super().load_state_dict(state_dict, strict)
+        
+    def state_dict(self):
+        state_dict = super().state_dict()
+        state_dict["position_shift_generator"] = self.position_shift_generator.get_state()
+        return state_dict
 
     @property
     def gate_offset(self):
@@ -1287,8 +1325,13 @@ class TokotronTransformerModel(nn.Module):
                 as a single tensor
         """
 
+        shift_src, shift_tgt = self.compute_position_shift(
+            src=input_tokens,
+            tgt=audio,
+            src_length=input_length,
+            tgt_length=audio_length)
         src, src_key_padding_mask, pos_embs_encoder = self.process_inputs(
-            input_tokens, input_length
+            input_tokens, input_length, shift_src
         )
         if self.representation_mode == RepresentationMode.CONTINUOUS:
             audio = bipolar_compression(audio)
@@ -1313,6 +1356,7 @@ class TokotronTransformerModel(nn.Module):
             src_length=input_length,
             src_key_padding_mask=src_key_padding_mask,
             pos_embs_src=pos_embs_encoder,
+            shift_tgt=shift_tgt
         )
         return TokotronOutput(
             out=dec_out.out,
@@ -1323,6 +1367,45 @@ class TokotronTransformerModel(nn.Module):
             dec_attn=dec_out.dec_attn,
             alignments=dec_out.alignments,
         )
+
+    def compute_position_shift(self, src, tgt, src_length, tgt_length):
+        """Computes the shift in positional encodings, if applicable
+
+        Arguments
+        ---------
+        src : torch.Tensor
+            The source tensor
+        tgt : torch.Tensor
+            The target tensor
+        src_length : torch.Tensor
+            The source relative lengths
+        tgt_length : torch.Tensor
+            The target relative lengths
+
+        Result
+        ------
+        src_shift : torch.Tensor
+            The source position shift
+            None if not applicable
+        tgt_shift : torch.Tensor
+            The target position shift
+            None if not applicable
+        """
+        shift_src, shift_tgt = None, None
+        if self.use_position_shift and self.training:
+            coin = torch.rand(1, generator=self.position_shift_generator).item()
+            if coin <= self.position_shift_probability:
+                batch_size, src_max_len = src.shape[:2]
+                tgt_max_len = tgt.size(1)
+                src_tgt_ratio = (
+                    (src_length * src_max_len) /
+                    (tgt_length * tgt_max_len)
+                ).mean()
+                shift_tgt = torch.rand(
+                    batch_size, generator=self.position_shift_generator
+                ) * self.max_position_shift
+                shift_src = shift_tgt * src_tgt_ratio
+        return shift_src, shift_tgt
 
     def add_emb(self, src, emb):
         """Adds embedding projections to the source tensor
@@ -1354,7 +1437,7 @@ class TokotronTransformerModel(nn.Module):
                 src = result
         return result
 
-    def process_inputs(self, input_tokens, input_length):
+    def process_inputs(self, input_tokens, input_length, shift_src=None):
         """Computes embeddings, the padding mask and encoder
         positional embeddings
 
@@ -1365,6 +1448,8 @@ class TokotronTransformerModel(nn.Module):
             characters or phonemes
         input_length : torch.Tensor
             a 1-D tensor of relative input lengths
+        shift_src : torch.Tensor
+            The position shift for the source tensor
 
         Returns
         -------
@@ -1382,7 +1467,7 @@ class TokotronTransformerModel(nn.Module):
             pos_embs_encoder = self.positional_encoding(in_emb)
         else:
             src = in_emb + self.positional_encoding(
-                in_emb
+                in_emb, shift_src
             )  # add the encodings here
             pos_embs_encoder = None
 
@@ -1564,7 +1649,7 @@ def get_alignments(attn):
 
 
 TokotronLossDetails = namedtuple(
-    "TokotronLossDetails", ["loss", "seq_loss", "gate_loss", "attn_loss", "spk_loss"]
+    "TokotronLossDetails", ["loss", "seq_loss", "gate_loss", "attn_loss", "spk_loss", "asr_loss"]
 )
 
 
@@ -1635,6 +1720,8 @@ class TokotronLoss(nn.Module):
         audio_tokens_per_step=1,
         spk_cost=None,
         spk_weight=0.5,
+        asr_cost=None,
+        asr_weight=0.5,
         representation_mode=RepresentationMode.DISCRETE,
     ):
         super().__init__()
@@ -1661,6 +1748,10 @@ class TokotronLoss(nn.Module):
             spk_cost = mse_loss
         self.spk_cost = spk_cost
         self.spk_weight = spk_weight
+        if asr_cost is None:
+            asr_cost = kldiv_loss
+        self.asr_cost = asr_cost
+        self.asr_weight = asr_weight
         if self.eos_mode == EosMode.TOKEN:
             audio_eos = (
                 torch.ones(eos_width, audio_tokens_per_step).long() * eos_index
@@ -1676,7 +1767,9 @@ class TokotronLoss(nn.Module):
         input_length,
         spk_pred=None,
         spk=None,
-        spk_loss=None,
+        asr_pred=None,
+        asr=None,
+        asr_length=None,
         reduction="mean",
     ):
         """Computes the loss, with details
@@ -1697,6 +1790,12 @@ class TokotronLoss(nn.Module):
             predicted speaker embeddings
         spk : torch.Tensor
             ground truth speaker embeddings
+        asr_pred : torch.Tensor
+            predicted ASR tokens
+        asr : torch.Tensor
+            ground truth ASR tokens
+        asr_length : torch.Tensor
+            relative lengths of ASR tokens
         reduction : str
             loss reduction (see speechbrain.nnet.losses)
         """
@@ -1766,16 +1865,24 @@ class TokotronLoss(nn.Module):
                 reduction=reduction,
             )
         else:
-            if reduction == "batch":
-                gate_loss = torch.zeros(
-                    (batch_size,), device=predictions.out.device
-                )
-            else:
-                gate_loss = torch.tensor(0.0, device=predictions.out.device)
+            gate_loss = self._zero_loss(
+                batch_size=batch_size,
+                reduction=reduction,
+                device=predictions.out.device,
+            )
 
         spk_loss = self._compute_spk_cost(
             spk,
             spk_pred,
+            audio=audio,
+            reduction=reduction,
+            device=predictions.out.device
+        )
+        asr_loss = self._compute_asr_cost(
+            asr,
+            asr_pred,
+            asr_length,
+            audio=audio,
             reduction=reduction,
             device=predictions.out.device
         )
@@ -1784,11 +1891,12 @@ class TokotronLoss(nn.Module):
             + self.guided_attention_weight * attn_loss
             + self.gate_weight * gate_loss
             + self.spk_weight * spk_loss
+            + self.asr_weight * asr_loss
         )
-        return TokotronLossDetails(loss, seq_loss, gate_loss, attn_loss, spk_loss)
+        return TokotronLossDetails(loss, seq_loss, gate_loss, attn_loss, spk_loss, asr_loss)
 
-    def _compute_spk_cost(self, spk, spk_pred, reduction, device):
-        if spk is not None:
+    def _compute_spk_cost(self, spk, spk_pred, audio, reduction, device):
+        if spk is not None and spk_pred is not None:
             mean, std = spk.mean(), spk.std()
             spk_norm = (spk - mean) / std
             spk_pred_norm = (spk_pred - mean) / std
@@ -1798,8 +1906,37 @@ class TokotronLoss(nn.Module):
                 reduction=reduction
             )
         else:
-            spk_loss = torch.tensor(0.0, device=device)
+            spk_loss = self._zero_loss(
+                batch_size=len(audio),
+                reduction=reduction,
+                device=device,
+            )
         return spk_loss
+    
+    def _compute_asr_cost(self, asr, asr_pred, asr_length, audio, reduction, device):
+        if asr is not None and asr_pred is not None:
+            asr_loss = self.asr_cost(
+                asr,
+                asr_pred,
+                length=asr_length,
+                reduction=reduction
+            )
+        else:
+            asr_loss = self._zero_loss(
+                batch_size=len(audio),
+                reduction=reduction,
+                device=device
+            )
+        return asr_loss
+
+    def _zero_loss(self, batch_size, reduction, device):
+        if reduction == "batch":
+            loss = torch.zeros(
+                (batch_size,), device=device
+            )
+        else:
+            loss = torch.tensor(0.0, device=device)
+        return loss
 
 
 def _filter_state_dict(state_dict):
@@ -2183,3 +2320,119 @@ def bipolar_compression_inv(x):
         x.exp() - 1.,
         1. - (-x).exp()
     )
+
+
+class TransformerASRGuide(nn.Module):
+    """A wrapper to be used for TTS fine-tuning using an ASR"""
+    def __init__(self, source, savedir, run_opts=None):
+        super().__init__()
+        if run_opts is None:
+            run_opts = {}
+        self.asr = EncoderDecoderASR.from_hparams(
+            source, savedir=savedir, run_opts=run_opts)
+    
+    def encode(self, label):
+        """Encodes a single label
+        
+        Arguments
+        ---------
+        label : str
+            The label to be encoded
+        
+        Returns
+        -------
+        result : list
+            a list of tokens
+        """
+        return self.asr.hparams.tokenizer.encode_as_ids(label)
+
+    def encode_batch(self, label):
+        """Tokenizes a batch of labels
+
+        Arguments
+        ---------
+        label : list
+            A list of raw labels
+        
+        Returns
+        -------
+
+        """
+        tokens = [
+            {"tokens": self.asr.hparams.tokenizer.encode_as_ids(item)}
+            for item in label
+        ]
+        return PaddedBatch(tokens).tokens
+
+    def forward(self, wav, length, tgt, tgt_length):
+        if wav.ndim == 3:
+            wav = wav.squeeze(1)
+        feats = self.asr.mods.compute_features(wav)
+        transformer_in = self.asr.mods.pre_transformer(feats)
+        _, dec_out = self.asr.mods.transformer(transformer_in, tgt, length)
+        p_seq = self.asr.hparams.seq_lin(dec_out)
+        return p_seq
+
+
+class ShiftedPositionalEncoding(nn.Module):
+    """A variation of positional emcodings that can be shifted
+    (useful for curriculum learning on partial seauences)
+    PE(pos, 2i)   = sin(pos/(10000^(2i/dmodel)))
+    PE(pos, 2i+1) = cos(pos/(10000^(2i/dmodel)))
+    
+    Arguments
+    ---------
+    input_size: int
+        Embedding dimension.
+    offset : int, optional
+        the offset at which the shift starts
+
+    Example
+    -------
+    >>> a = torch.rand((8, 120, 512))
+    >>> enc = PositionalEncoding(input_size=a.shape[-1])
+    >>> b = enc(a)
+    >>> b.shape
+    torch.Size([1, 120, 512])
+    """
+
+    def __init__(self, input_size, offset=0):
+        super().__init__()
+        self.input_size = input_size
+        self.offset = offset
+
+    def forward(self, x, shift=None):
+        """
+        Arguments
+        ---------
+        x : tensor
+            Input feature shape (batch, time, fea)
+        shift : tensor
+            A 1-D tensor of the batch size indicating
+            the amount of positions by which embeddings
+        have been shifted
+        """
+        batch_size, seq_len, input_size = x.shape[:3]
+        pe = torch.zeros(batch_size, seq_len, input_size, requires_grad=False, device=x.device)
+        if shift is None:
+            shift = torch.zeros(batch_size, device=x.device, requires_grad=False)
+        if self.offset == 0:
+            shift_exp = shift[:, None, None]
+        else:
+            shift_exp = torch.ones(batch_size, seq_len, 1, requires_grad=False) * shift[:, None, None]
+            shift_exp[:, :self.offset, :] = 0.
+        positions = (
+            torch.arange(0, seq_len, device=x.device)
+            .unsqueeze(0)
+            .unsqueeze(-1)
+            .expand(batch_size, seq_len, 1)
+            .float()
+        ) + shift_exp
+        denominator = torch.exp(
+            torch.arange(0, input_size, 2, device=x.device).float()
+            * -(math.log(10000.0) / input_size)
+        )
+
+        pe[:, :, 0::2] = torch.sin(positions * denominator)
+        pe[:, :, 1::2] = torch.cos(positions * denominator)
+        return pe
