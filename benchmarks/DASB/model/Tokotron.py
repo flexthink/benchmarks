@@ -2415,11 +2415,11 @@ class ShiftedPositionalEncoding(nn.Module):
         batch_size, seq_len, input_size = x.shape[:3]
         pe = torch.zeros(batch_size, seq_len, input_size, requires_grad=False, device=x.device)
         if shift is None:
-            shift = torch.zeros(batch_size, device=x.device, requires_grad=False)
+            shift = torch.zeros(batch_size, device=x.device, requires_grad=False, device=x.device)
         if self.offset == 0:
             shift_exp = shift[:, None, None]
         else:
-            shift_exp = torch.ones(batch_size, seq_len, 1, requires_grad=False) * shift[:, None, None]
+            shift_exp = torch.ones(batch_size, seq_len, 1, requires_grad=False, device=x.device) * shift[:, None, None]
             shift_exp[:, :self.offset, :] = 0.
         positions = (
             torch.arange(0, seq_len, device=x.device)
