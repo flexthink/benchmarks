@@ -1917,8 +1917,8 @@ class TokotronLoss(nn.Module):
     def _compute_asr_cost(self, asr, asr_pred, asr_length, audio, reduction, device):
         if asr is not None and asr_pred is not None:
             asr_loss = self.asr_cost(
-                asr,
                 asr_pred,
+                asr,
                 length=asr_length,
                 reduction=reduction
             )

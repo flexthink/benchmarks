@@ -42,6 +42,12 @@ progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
 
+# Position shift
+use_position_shift: True
+max_position_shift: 1000
+position_shift_seed: 42
+position_shift_probability: 1.0
+
 freeze_token_model: True
 
 token_model_src: !apply:speechbrain.utils.hparams.choice
@@ -89,6 +95,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 input: text
 number_of_epochs: 1000
 batch_size: 16
+batch_size_guided: 2
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
 max_grad_norm: 0.01
@@ -159,7 +166,7 @@ silence_padding: !ref <gate_offset>
 use_silence_padding: True
 
 # Guides
-guides_enabled: True
+guides_enabled: False
 guides_start_epoch: 40
 guides_spk: True
 guides_spk_loss_weight: 0.2
@@ -381,6 +388,10 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     decoder_mode: !ref <decoder_mode>
     scale_factor: !ref <scale_factor>
     representation_mode: !ref <representation_mode>
+    use_position_shift: !ref <use_position_shift>
+    max_position_shift: !ref <max_position_shift>
+    position_shift_probability: !ref <position_shift_probability>
+    position_shift_seed: !ref <position_shift_seed>
     emb: !ref <emb>
 
 modules:
