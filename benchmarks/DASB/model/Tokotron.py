@@ -1404,8 +1404,7 @@ class TokotronTransformerModel(nn.Module):
                 ).mean()
                 shift_tgt = torch.rand(
                     batch_size, generator=self.position_shift_generator,
-                    device=tgt.device
-                ) * self.max_position_shift
+                ).to(tgt.device) * self.max_position_shift
                 shift_src = shift_tgt * src_tgt_ratio
         return shift_src, shift_tgt
 
@@ -2372,7 +2371,7 @@ class TransformerASRGuide(nn.Module):
         feats = self.asr.mods.compute_features(wav)
         transformer_in = self.asr.mods.pre_transformer(feats)
         _, dec_out = self.asr.mods.transformer(transformer_in, tgt, length)
-        p_seq = self.asr.hparams.seq_lin(dec_out)
+        p_seq = self.asr.hparams.seq_lin(dec_out).log_softmax(-1)
         return p_seq
 
 
