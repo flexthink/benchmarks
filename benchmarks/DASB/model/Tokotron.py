@@ -1263,6 +1263,7 @@ class TokotronTransformerModel(nn.Module):
         position_shift_generator_state = state_dict.get("position_shift_generator")
         if position_shift_generator_state is not None:
             self.position_shift_generator.set_state(position_shift_generator_state)
+            del state_dict["position_shift_generator"]
         try:
             return super().load_state_dict(state_dict, strict, assign)
         except TypeError:
