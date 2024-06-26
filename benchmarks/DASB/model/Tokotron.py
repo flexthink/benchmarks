@@ -1403,7 +1403,8 @@ class TokotronTransformerModel(nn.Module):
                     (tgt_length * tgt_max_len)
                 ).mean()
                 shift_tgt = torch.rand(
-                    batch_size, generator=self.position_shift_generator
+                    batch_size, generator=self.position_shift_generator,
+                    device=tgt.device
                 ) * self.max_position_shift
                 shift_src = shift_tgt * src_tgt_ratio
         return shift_src, shift_tgt
