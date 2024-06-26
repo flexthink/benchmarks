@@ -166,6 +166,11 @@ class TokotronBrain(sb.Brain):
             audio = self.compression_model.compress(audio)
         audio = self.select_layers(audio)
         tokotron_predictions, guides = predictions
+        
+        asr_pred = guides.get("asr")
+        asr = batch.asr_tokens.data if asr_pred is not None else None
+        asr_length = batch.asr_tokens.lengths if asr_pred is not None else None
+
         loss_details = self.hparams.compute_cost(
             predictions=tokotron_predictions,
             audio=audio,
@@ -173,7 +178,10 @@ class TokotronBrain(sb.Brain):
             input_tokens=batch.tokens.data,
             input_length=batch.tokens.lengths,
             spk_pred=guides.get("spk"),
-            spk=batch.spk_emb.data
+            spk=batch.spk_emb.data,
+            asr_pred=asr_pred,
+            asr=asr,
+            asr_length=asr_length,
         )
         self.loss_metric.append(
             batch.uttid,
@@ -184,9 +192,9 @@ class TokotronBrain(sb.Brain):
             input_length=batch.tokens.lengths,
             spk_pred=guides.get("spk"),
             spk=batch.spk_emb.data,
-            asr_pred=guides.get("asr"),
-            asr=batch.asr_tokens.data,
-            asr_length=batch.asr_tokens.lengths,
+            asr_pred=asr_pred,
+            asr=asr,
+            asr_length=asr_length,
             reduction="batch",
         )
         return loss_details.loss
