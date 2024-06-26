@@ -30,6 +30,7 @@ from benchmarks.DASB.utils.audio_tokens import (
 )
 from benchmarks.DASB.model.Tokotron import RepresentationMode
 from benchmarks.DASB.utils.hparams import as_list
+from types import SimpleNamespace
 
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ class TokotronBrain(sb.Brain):
 
         guides = {}
 
-        if self.hparams.guides_enabled:
+        if self.guides_running():
             # Compute the raw waveform. This requires
             # a differentiable vocoder
             wav = self.modules.model.vocoder(
@@ -82,14 +83,33 @@ class TokotronBrain(sb.Brain):
                 audio_length
             )
             if self.hparams.guides_spk:
-                mel_spec = self.spk_emb_model.mel_spectogram(
-                    audio=wav.squeeze(1))
-                spk_emb_pred = self.spk_emb_model.encode_mel_spectrogram_batch(
-                    mel_spec, audio_length
+                guides["spk"] = self._compute_spk(wav, audio_length)
+            if self.hparams.guides_asr:
+                asr_tokens, asr_tokens_length = batch.asr_tokens
+                guides["asr"] = self._compute_asr(
+                    wav,
+                    audio_length,
+                    asr_tokens,
+                    asr_tokens_length
                 )
-                guides["spk"] = spk_emb_pred
 
         return predictions, guides
+    
+    def _compute_spk(self, wav, wav_length):
+        mel_spec = self.spk_emb_model.mel_spectogram(
+            wav.squeeze(1))
+        spk_emb_pred = self.spk_emb_model.encode_mel_spectrogram_batch(
+            mel_spec, wav_length
+        )
+        return spk_emb_pred
+    
+    def _compute_asr(self, wav, wav_length, asr_tokens, asr_tokens_length):
+        return self.asr_model(
+            wav,
+            wav_length,
+            asr_tokens,
+            asr_tokens_length
+        )
 
     def _get_selected_layer_idx(self):
         selected_layers = None
@@ -164,6 +184,9 @@ class TokotronBrain(sb.Brain):
             input_length=batch.tokens.lengths,
             spk_pred=guides.get("spk"),
             spk=batch.spk_emb.data,
+            asr_pred=guides.get("asr"),
+            asr=batch.asr_tokens.data,
+            asr_length=batch.asr_tokens.lengths,
             reduction="batch",
         )
         return loss_details.loss
@@ -204,17 +227,74 @@ class TokotronBrain(sb.Brain):
             self.modules.model.init_audio_emb(vocabulary)
         # Load the compression model only if compression is enables
         self.compression = getattr(self.hparams, "compression", False)
+        pretrained_run_opts = {"device": self.device}
         if self.compression:
             self.compression_model = self.hparams.compression_model(
-                run_opts={"device": self.device}
+                run_opts=pretrained_run_opts
             )
             self.modules.model.compression_model = self.compression_model
-        if (self.hparams.guides_enabled and epoch >= self.hparams.guides_start_epoch):
+        if self.guides_running():
             if self.hparams.guides_spk:
                 logger.info("Training with the speaker identity guide")
                 self.spk_emb_model = self.hparams.spk_emb_model(
-                    run_opts={"device": self.device}
+                    run_opts=pretrained_run_opts
                 )
+            if self.hparams.guides_asr:
+                logger.info("Training with the ASR guide")
+                self.asr_model = self.hparams.asr_model(
+                    run_opts=pretrained_run_opts
+                )
+
+    def make_dataloader(
+        self, dataset, stage, ckpt_prefix="dataloader-", **loader_kwargs
+    ):
+        """A custom override of make_dataloader that will change the batch
+        size if guides are enabled to meet GPU memory constraints
+
+        Arguments
+        ---------
+        dataset : Dataset
+            A set of data to use to create data loader. If the Dataset is a
+            DynamicItemDataset, PaddedBatch is used as the default collate_fn,
+            unless specified in loader_kwargs.
+        stage : Stage
+            The stage of the experiment: Stage.TRAIN, Stage.VALID, Stage.TEST
+        ckpt_prefix : str, None
+            Prefix to use for SaveableDataLoader Checkpoint name. The Stage
+            name is added to this to create the full key. Set to None to not
+            save the DataLoader.
+        **loader_kwargs : dict
+            Additional keyword arguments to the DataLoader.
+            E.g., batch_size, num_workers, pin_memory.
+
+        Returns
+        -------
+        DataLoader for the input dataset
+        """
+        if self.guides_running(pre_epoch=True):
+            loader_kwargs["batch_size"] = self.hparams.batch_size_guided
+        return super().make_dataloader(
+            dataset=dataset,
+            stage=stage,
+            ckpt_prefix=ckpt_prefix,
+            **loader_kwargs
+        )
+
+    def guides_running(self, pre_epoch=False):
+        """Determines whether guides are currently running
+
+        Arguments
+        ---------
+        pre_epoch : bool
+            If enabled, a correction will be applied to the current epoch
+            indicating that the current epoch has not yet started"""
+        epoch = self.hparams.epoch_counter.current
+        if pre_epoch:
+            epoch += 1
+        return (
+            self.hparams.guides_enabled
+            and epoch >= self.hparams.guides_start_epoch
+        )
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.
@@ -352,7 +432,7 @@ class TokotronBrain(sb.Brain):
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phn"}
 
 
-def dataio_prepare(hparams):
+def dataio_prepare(hparams, guide_ctx):
     """This function prepares the datasets to be used in the brain class.
     It also defines the data processing pipeline through user-defined functions.
 
@@ -362,6 +442,9 @@ def dataio_prepare(hparams):
     hparams : dict
         This dictionary is loaded from the `train.yaml` file, and it includes
         all the hyperparameters needed for dataset construction and loading.
+    
+    guide_ctx : SimpleNamespace
+        The guide context with pretrained models
 
     Returns
     -------
@@ -399,6 +482,12 @@ def dataio_prepare(hparams):
     def tokens_pipeline(label):
         """Processes the transcriptions to generate proper labels"""
         return label_encoder.encode_sequence_torch(label)
+    
+    @sb.utils.data_pipeline.takes("label_norm")
+    @sb.utils.data_pipeline.provides("asr_tokens")
+    def asr_tokens_pipeline(label):
+        """Processes the transcriptions to generate proper labels"""
+        return torch.tensor(guide_ctx.asr_model.encode(label))
 
     use_silence_padding = hparams.get("use_silence_padding", True)
     audio_tokens_per_step = len(as_list(hparams["token_model_layers"]))
@@ -437,6 +526,17 @@ def dataio_prepare(hparams):
         yield audio_bos
 
     dynamic_items = [text_pipeline, tokens_pipeline, audio_pipeline]
+    output_keys = [
+        "uttid",
+        "tokens",
+        "audio_pad",
+        "audio_bos",
+        "spk_emb"
+    ]
+
+    if hparams["guides_enabled"] and hparams["guides_asr"]:
+        dynamic_items.append(asr_tokens_pipeline)
+        output_keys.append("asr_tokens")
 
     init_sequence_encoder(hparams)
 
@@ -445,13 +545,7 @@ def dataio_prepare(hparams):
             json_path=data_info[dataset],
             replacements={"data_root": data_folder},
             dynamic_items=dynamic_items,
-            output_keys=[
-                "uttid",
-                "tokens",
-                "audio_pad",
-                "audio_bos",
-                "spk_emb"
-            ],
+            output_keys=output_keys,
         )
 
         add_prepared_features(
@@ -640,6 +734,36 @@ def apply_overfit_test(hparams, dataset):
     return result
 
 
+def get_guide_ctx(hparams, run_opts):
+    """Initializes a context object for guides,
+    containing pretrained models only for guides that will be
+    used per hparams
+    
+    Arguments
+    ---------
+    hparams : dict  
+        Hyperparameters
+    run_opts : dict
+        Run options
+    
+    Returns
+    -------
+    ctx : SimpleNamespace
+        The resulting context"""
+    ctx = {}
+    if hparams["guides_enabled"]:
+        pretrained_run_opts = {"device": run_opts.get("device", "cpu")}
+        if hparams["guides_spk"]:
+            ctx["spk_emb_model"] = hparams["spk_emb_model"](
+                run_opts=pretrained_run_opts
+            )
+        if hparams["guides_asr"]:
+            ctx["asr_model"] = hparams["asr_model"](
+                run_opts=pretrained_run_opts
+            )
+    return SimpleNamespace(**ctx)
+
+
 if __name__ == "__main__":
 
     # Reading command line arguments
@@ -698,7 +822,8 @@ if __name__ == "__main__":
             )
 
     # We can now directly create the datasets for training, valid, and test
-    datasets, silence_padding = dataio_prepare(hparams)
+    guide_ctx = get_guide_ctx(hparams, run_opts)
+    datasets, silence_padding = dataio_prepare(hparams, guide_ctx)
 
     # Apply overfit test settings
     datasets = apply_overfit_test(hparams, datasets)
