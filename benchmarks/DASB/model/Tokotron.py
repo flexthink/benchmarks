@@ -1265,10 +1265,10 @@ class TokotronTransformerModel(nn.Module):
             self.position_shift_generator.set_state(position_shift_generator_state)
             del state_dict["position_shift_generator"]
         try:
-            return super().load_state_dict(state_dict, strict, assign)
+            return super().load_state_dict(state_dict, strict=False, assign)
         except TypeError:
             # NOTE: Older versions of PyTorch don't have the assign parameter
-            return super().load_state_dict(state_dict, strict)
+            return super().load_state_dict(state_dict, strict=False)
         
     def state_dict(self):
         state_dict = super().state_dict()
