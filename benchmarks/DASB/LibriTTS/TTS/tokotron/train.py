@@ -271,7 +271,7 @@ class TokotronBrain(sb.Brain):
         self.init_optimizers()
 
         # Load latest checkpoint to resume training if interrupted
-        if self.checkpointer is not None and not self.getattr(
+        if self.checkpointer is not None and not getattr(
             self, "_ckpt_recovered", True
         ):
             self.checkpointer.recover_if_possible()
@@ -303,7 +303,7 @@ class TokotronBrain(sb.Brain):
         -------
         DataLoader for the input dataset
         """
-        if stage == sb.Stage.TRAIN and not self.getattr(self, "_ckpt_recovered", True):
+        if stage == sb.Stage.TRAIN and not getattr(self, "_ckpt_recovered", True):
             self.checkpointer.recover_if_possible()
             self._ckpt_recovered = True
         if self.guides_running(pre_epoch=True):
