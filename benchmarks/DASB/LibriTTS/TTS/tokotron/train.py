@@ -469,7 +469,7 @@ class TokotronBrain(sb.Brain):
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phn"}
 
 
-def dataio_prepare(hparams, guide_ctx):
+def dataio_prepare(hparams, guide_ctx=None):
     """This function prepares the datasets to be used in the brain class.
     It also defines the data processing pipeline through user-defined functions.
 
@@ -480,7 +480,7 @@ def dataio_prepare(hparams, guide_ctx):
         This dictionary is loaded from the `train.yaml` file, and it includes
         all the hyperparameters needed for dataset construction and loading.
     
-    guide_ctx : SimpleNamespace
+    guide_ctx : SimpleNamespace, optional
         The guide context with pretrained models
 
     Returns

@@ -542,6 +542,7 @@ if __name__ == "__main__":
             )
 
     # Reading command line arguments
+    hparams["guides_enabled"] = False
     datasets, _ = dataio_prepare(hparams)
 
     # Select the dataset to use in evaluation

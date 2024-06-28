@@ -553,9 +553,6 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
             min_decode_ratio=min_decode_ratio,
             max_decode_ratio=max_decode_ratio,
         )
-        self.searcher.set_decoder_input_tokens(
-            self.model.tokenizer.prefix_tokens
-        )
         device = run_opts.get("device", next(self.model.parameters()).device)
         self.unbatch = unbatch
         self.to(device)
