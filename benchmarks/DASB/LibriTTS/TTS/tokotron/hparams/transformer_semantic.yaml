@@ -171,7 +171,7 @@ guides_start_epoch: 40
 guides_spk: True
 guides_spk_loss_weight: 0.2
 guides_asr: True
-guides_asr_loss_weight: 0.2
+guides_asr_loss_weight: 0.1
 
 
 # Token model (pretrained)
@@ -417,6 +417,7 @@ compute_cost: !new:benchmarks.DASB.model.Tokotron.TokotronLoss
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     audio_token_shift: !ref <audio_token_shift>
     spk_weight: !ref <guides_spk_loss_weight>
+    asr_weight: !ref <guides_asr_loss_weight>
     representation_mode: !ref <representation_mode>
 
 

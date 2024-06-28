@@ -2370,7 +2370,11 @@ class TransformerASRGuide(nn.Module):
             wav = wav.squeeze(1)
         feats = self.asr.mods.compute_features(wav)
         transformer_in = self.asr.mods.pre_transformer(feats)
-        _, dec_out = self.asr.mods.transformer(transformer_in, tgt, length)
+        bos = torch.tensor([self.asr.hparams.bos_index], device=tgt.device)[None, :].expand(
+            wav.size(0), 1
+        )
+        tgt_bos = torch.cat([bos, tgt], dim=1)
+        _, dec_out = self.asr.mods.transformer(transformer_in, tgt_bos, length)
         p_seq = self.asr.hparams.seq_lin(dec_out).log_softmax(-1)
         return p_seq
 
