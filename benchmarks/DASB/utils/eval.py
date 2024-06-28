@@ -508,10 +508,6 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
         The path where Whisper will be saved
     sample_rate: int, optional
         The audio sample rate
-    bos_index : int, optional
-        The index of the BOS token
-    eos_index : int, optional
-        The index of the EOS token
     min_decode_ratio : float, optional
         The minimum decode ratio
     run_opts : dict, optional
@@ -530,8 +526,6 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
         source,
         savedir=None,
         sample_rate=22050,
-        bos_index=50363,
-        eos_index=50257,
         min_decode_ratio=0.0,
         max_decode_ratio=1.0,
         run_opts=None,
@@ -548,8 +542,6 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
         self.model.tokenizer.set_prefix_tokens("english", "transcribe", False)
         self.searcher = S2SWhisperGreedySearcher(
             self.model,
-            bos_index=bos_index,
-            eos_index=eos_index,
             min_decode_ratio=min_decode_ratio,
             max_decode_ratio=max_decode_ratio,
         )
