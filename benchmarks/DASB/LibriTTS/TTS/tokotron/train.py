@@ -253,6 +253,30 @@ class TokotronBrain(sb.Brain):
                     run_opts=pretrained_run_opts
                 )
 
+    def on_fit_start(self):
+        """Gets called at the beginning of ``fit()``, on multiple processes
+        if ``distributed_count > 0`` and backend is ddp.
+
+        Default implementation compiles the jit modules, initializes
+        optimizers, and loads the latest checkpoint to resume training.
+        """
+        # Run this *after* starting all processes since jit/compiled modules
+        # cannot be pickled.
+        self._compile()
+
+        # Wrap modules with parallel backend after jit
+        self._wrap_distributed()
+
+        # Initialize optimizers after parameters are configured
+        self.init_optimizers()
+
+        # Load latest checkpoint to resume training if interrupted
+        if self.checkpointer is not None and not self.getattr(
+            self, "_ckpt_recovered", True
+        ):
+            self.checkpointer.recover_if_possible()
+            self._ckpt_recovered = True
+
     def make_dataloader(
         self, dataset, stage, ckpt_prefix="dataloader-", **loader_kwargs
     ):
@@ -279,6 +303,9 @@ class TokotronBrain(sb.Brain):
         -------
         DataLoader for the input dataset
         """
+        if stage == sb.Stage.TRAIN and not self.getattr(self, "_ckpt_recovered", True):
+            self.checkpointer.recover_if_possible()
+            self._ckpt_recovered = True
         if self.guides_running(pre_epoch=True):
             loader_kwargs["batch_size"] = self.hparams.batch_size_guided
         return super().make_dataloader(
