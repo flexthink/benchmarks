@@ -9,7 +9,7 @@ Authors:
 from speechbrain.inference.interfaces import Pretrained
 from speechbrain.inference.ASR import EncoderDecoderASR
 from speechbrain.lobes.models.huggingface_transformers import Whisper
-from speechbrain.decoders.seq2seq import S2SWhisperGreedySearch
+from speechbrain.decoders.seq2seq import S2SWhisperGreedySearcher
 from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.utils.metric_stats import ErrorRateStats
 from collections import namedtuple
@@ -546,7 +546,7 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
             source, savedir, sample_rate, freeze=True, freeze_encoder=True,
         )
         self.model.tokenizer.set_prefix_tokens("english", "transcribe", False)
-        self.searcher = S2SWhisperGreedySearch(
+        self.searcher = S2SWhisperGreedySearcher(
             self.model,
             bos_index=bos_index,
             eos_index=eos_index,
