@@ -253,6 +253,16 @@ class TokotronBrain(sb.Brain):
                     run_opts=pretrained_run_opts
                 )
 
+        # Reset the learning rate - if supported. This is useful when fine-tuning
+        # a model pre-trained on another dataset
+        if (
+            stage == sb.Stage.TRAIN
+            and self.hparams.reset_annealing_epoch is not None
+            and epoch is not None
+            and epoch == self.hparams.reset_annealing_epoch
+        ):
+            self.hparams.lr_annealing.n_steps = 0
+
     def on_fit_start(self):
         """Gets called at the beginning of ``fit()``, on multiple processes
         if ``distributed_count > 0`` and backend is ddp.

@@ -94,6 +94,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # Training parameters
 input: text
 number_of_epochs: 1000
+reset_annealing_epoch: null
 batch_size: 16
 batch_size_guided: 2
 extract_features_batch_size: 32
