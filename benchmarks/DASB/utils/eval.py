@@ -580,8 +580,10 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
         if text is None:
             raise ValueError("This evaluator requires ground-truth text")
         wavs = self.resample(wavs, sample_rate)
-        enc_out = self.model.forward_encoder(wavs)
-        predicted_words, _, _, _ = self.searcher(enc_out, length)
+        wavs = self.model.pad_or_trim(wavs)
+        mels = self.model.log_mel_spectrogram(wavs)
+        enc_out = self.model.forward_encoder(mels)
+        predicted_words, _, _, _ = self.searcher(enc_out.detach(), length)
         predicted_words = self.model.tokenizer.batch_decode(
             predicted_words, skip_special_tokens=True
         )
