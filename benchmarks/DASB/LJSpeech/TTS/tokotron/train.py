@@ -261,6 +261,7 @@ class TokotronBrain(sb.Brain):
                     audio=infer_out.wav,
                     length_pred=infer_out.wav_length,
                     length=batch.audio_pad.lengths,
+                    tgt_max_length=batch.audio_pad.data.size(1),
                     alignments=infer_out.alignments,
                     p_eos=infer_out.p_eos,
                 )
