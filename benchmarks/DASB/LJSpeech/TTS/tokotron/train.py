@@ -322,6 +322,9 @@ class TokotronBrain(sb.Brain):
             )
         else:
             self.optimizer = self.opt_class(self.modules.model.parameters(), lr=self.hparams.lr)
+        if self.checkpointer is not None:
+            self.checkpointer.add_recoverable("optimizer", self.optimizer)
+
 
 
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phonemes"}
