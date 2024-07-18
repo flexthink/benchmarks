@@ -12,6 +12,8 @@ from speechbrain.lobes.models.huggingface_transformers import Whisper
 from speechbrain.decoders.seq2seq import S2SWhisperGreedySearcher
 from speechbrain.dataio.dataset import FilteredSortedDynamicItemDataset
 from speechbrain.dataio.batch import PaddedBatch
+from speechbrain.dataio.dataio import length_to_mask
+from speechbrain.utils.data_utils import pad_right_to
 from speechbrain.utils.metric_stats import ErrorRateStats
 from collections import namedtuple
 from pathlib import Path
@@ -34,6 +36,13 @@ RE_PUNCTUATION = re.compile(
 SpeechEvaluationResult = namedtuple(
     "SpeechEvaluationResult", ["score", "details"]
 )
+
+has_transformers = False
+try:
+    from transformers import AutoModelForAudioXVector
+    has_transformers = True
+except ImportError:
+    logger.warning("transformers library not found - some evaluators may be disabled")
 
 
 class SpeechEvaluator:
@@ -831,7 +840,7 @@ def vocoder_to_device(vocoder, device):
 
 class Tracker:
     """A tracker that makes it possible to resume evaluation
-    
+
     Arguments
     ---------
     file_name : str | path-like
@@ -904,3 +913,108 @@ class Tracker:
         else:
             processed_ids = []
         return processed_ids
+
+
+class SpkSimWavLM(SpeechEvaluator):
+    """A speaker similarity evaluator based on WavLM / XVector
+
+    Arguments
+    ---------
+    source : str
+        The model hub to use
+    savedir : str
+        The path where the model will be saved
+    model_sample_rate : int, optional
+        The sample rate to which all samples will be resampled
+        before being processed
+    """
+    def __init__(
+        self,
+        source,
+        savedir,
+        model_sample_rate=16000,
+        run_opts=None,
+        *args,
+        **kwargs
+    ):
+        if not has_transformers:
+            raise ValueError(
+                "Unable to use the SpkSimWavLM evaluator because the "
+                "transformers library is not enabled"
+            )
+        if run_opts is None:
+            run_opts = {}
+        device = run_opts.get("device")
+        self.model = AutoModelForAudioXVector.from_pretrained(
+            source, cache_dir=savedir,
+            *args,
+            **kwargs
+        )
+        if device is not None:
+            self.model = self.model.to(device)
+
+        self.model.eval()
+        self.model_sample_rate = model_sample_rate
+        self.device = next(self.model.parameters()).device
+
+    def evaluate(
+        self,
+        wavs,
+        length,
+        text=None,
+        wavs_ref=None,
+        length_ref=None,
+        sample_rate=None,
+        sample_rate_ref=None,
+    ):
+        # Resample
+        if sample_rate is not None:
+            wavs = torchaudio.functional.resample(
+                wavs,
+                orig_freq=sample_rate,
+                new_freq=self.model_sample_rate
+            )
+        if sample_rate_ref is not None:
+            wavs_ref = torchaudio.functional.resample(
+                wavs_ref,
+                orig_freq=sample_rate,
+                new_freq=self.model_sample_rate
+            )
+
+        # Concatenate
+        batch_size, wavs_max_len = wavs.shape
+        _, wavs_ref_max_len = wavs_ref.shape
+        length_abs = length * wavs_max_len
+        length_ref_abs = length_ref * wavs_ref_max_len        
+        max_len = max(wavs_max_len, wavs_ref_max_len)
+        wavs, _ = pad_right_to(
+            wavs,
+            (batch_size, max_len)
+        )
+        wavs_ref, _ = pad_right_to(
+            wavs_ref,
+            (batch_size, max_len)
+        )
+        audio = torch.cat([wavs, wavs_ref])
+
+        length_cat_abs = torch.cat([length_abs, length_ref_abs])
+        # Attention mask
+        attention_mask = None
+        attention_mask = length_to_mask(
+            length_cat_abs.int()
+        ).long()  # 0 for masked tokens
+        # Forward
+        embs = self.model(
+            input_values=audio,
+            attention_mask=attention_mask,
+            output_attentions=False,
+        ).embeddings
+        hyp_embs, ref_embs = embs.split([len(wavs), len(wavs_ref)])
+        scores = torch.nn.functional.cosine_similarity(
+            hyp_embs, ref_embs, dim=-1
+        )
+
+        return SpeechEvaluationResult(
+            scores,
+            {"score": scores}
+        )
