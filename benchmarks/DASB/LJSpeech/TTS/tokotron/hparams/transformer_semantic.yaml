@@ -65,6 +65,7 @@ vocoder_src: !apply:speechbrain.utils.hparams.choice
         continuous: !ref <vocoder_src_continous>
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
+spk_emb_injection: film
 
 vocoder_available_layers: [1, 3, 7, 12, 18, 23]
 
@@ -316,6 +317,7 @@ emb:
     kind: "pretrained"
     dim: 192
     vocoder: True
+    injection: !ref <spk_emb_injection>
 
 model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
