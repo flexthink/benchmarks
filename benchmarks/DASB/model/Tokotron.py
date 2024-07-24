@@ -17,7 +17,7 @@ from torch import nn
 from torch.nn import functional as F
 from speechbrain.lobes.models.transformer.Transformer import (
     TransformerEncoder,
-    TransformerDecoder,
+    TransformerDecoderLayer,
     PositionalEncoding,
     get_lookahead_mask,
 )
@@ -25,6 +25,7 @@ from speechbrain.dataio.dataio import clean_padding_
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.embedding import Embedding
 from speechbrain.nnet.linear import Linear
+from speechbrain.nnet.normalization import LayerNorm
 from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss
 from benchmarks.DASB.model.custom_model import MultiEmbedding
 from speechbrain.dataio.dataio import length_to_mask
@@ -146,6 +147,8 @@ class TokotronTransformerDecoder(nn.Module):
         the type of representations to be used (discrete or continuous)
     audio_dim : int, optional
         The continuous audio input dimension
+    emb : dict
+        The embedding configuration
     """
 
     def __init__(
@@ -173,11 +176,12 @@ class TokotronTransformerDecoder(nn.Module):
         multihead_input=True,
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
+        emb=None,
     ):
         super().__init__()
         self.num_tokens = num_tokens
         self.tokens_per_step = tokens_per_step
-        self.dec = TransformerDecoder(
+        self.dec = EmbeddingGuidedTransformerDecoder(
             d_model=d_model,
             d_ffn=d_ffn,
             nhead=nhead,
@@ -185,6 +189,7 @@ class TokotronTransformerDecoder(nn.Module):
             num_layers=num_layers,
             activation=activation,
             dropout=dropout,
+            emb=emb,
         )
         in_proj_size = audio_emb_size
         if multihead_input:
@@ -246,6 +251,7 @@ class TokotronTransformerDecoder(nn.Module):
         tgt_key_padding_mask=None,
         pos_embs_src=None,
         shift_tgt=None,
+        emb=None,
     ):
         """Performs a decode step
 
@@ -268,6 +274,10 @@ class TokotronTransformerDecoder(nn.Module):
             The target positional embeddings
         shift_tgt : torch.Tensor, optional
             The position shift
+        emb : dict, optional
+            a [str, tensor] dictionary of embeddings (e.g. speaker, language,
+            etc)
+
 
         Returns
         -------
@@ -324,6 +334,7 @@ class TokotronTransformerDecoder(nn.Module):
             memory_key_padding_mask=src_key_padding_mask,
             pos_embs_tgt=pos_embs_tgt,
             pos_embs_src=pos_embs_src,
+            emb=emb,
         )
         return dec_out, dec_self_attn, dec_attn
 
@@ -336,7 +347,8 @@ class TokotronTransformerDecoder(nn.Module):
         tgt_length=None,
         tgt_key_padding_mask=None,
         pos_embs_src=None,
-        shift_tgt=None
+        shift_tgt=None,
+        emb=None,
     ):
         """Computes the forward pass, for training
 
@@ -354,6 +366,9 @@ class TokotronTransformerDecoder(nn.Module):
             Source positional embeddings
         shift_tgt : torch.Tensor, optional
             The position shift
+        emb : dict, optional
+            a [str, tensor] dictionary of embeddings (e.g. speaker, language,
+            etc)
 
         Returns
         -------
@@ -389,6 +404,7 @@ class TokotronTransformerDecoder(nn.Module):
             tgt_key_padding_mask,
             pos_embs_src,
             shift_tgt,
+            emb
         )
         lin_out = self.out_proj(dec_out)
         batch_size, audio_max_len, num_tokens = lin_out.shape
@@ -547,6 +563,7 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
                     src_length=length,
                     tgt=audio,
                     tgt_length=audio_length,
+                    emb=emb,
                 )
                 audio_out = step_out.out
 
@@ -1147,7 +1164,8 @@ class TokotronTransformerModel(nn.Module):
             audio_token_shift=audio_token_shift,
             multihead_input=self.decoder_mode == DecoderMode.AUTOREGRESSIVE,
             representation_mode=representation_mode,
-            audio_dim=audio_dim
+            audio_dim=audio_dim,
+            emb=emb
         )
         self.bos_idx = bos_idx
         self.vocoder = vocoder
@@ -1357,7 +1375,8 @@ class TokotronTransformerModel(nn.Module):
             src_length=input_length,
             src_key_padding_mask=src_key_padding_mask,
             pos_embs_src=pos_embs_encoder,
-            shift_tgt=shift_tgt
+            shift_tgt=shift_tgt,
+            emb=emb,
         )
         return TokotronOutput(
             out=dec_out.out,
@@ -2354,7 +2373,7 @@ class TransformerASRGuide(nn.Module):
         ---------
         label : list
             A list of raw labels
-        
+
         Returns
         -------
 
@@ -2441,3 +2460,349 @@ class ShiftedPositionalEncoding(nn.Module):
         pe[:, :, 0::2] = torch.sin(positions * denominator)
         pe[:, :, 1::2] = torch.cos(positions * denominator)
         return pe
+
+
+class EmbeddingGuidedTransformerDecoder(nn.Module):
+    """This class implements the Transformer decoder with embedding injections
+
+    Arguments
+    ---------
+    num_layers : int
+        Number of transformer layers for the decoder.
+    nhead : int
+        Number of attention heads.
+    d_ffn : int
+        Hidden size of self-attention Feed Forward layer.
+    d_model : int
+        Dimension of the model.
+    kdim : int, optional
+        Dimension for key (Optional).
+    vdim : int, optional
+        Dimension for value (Optional).
+    dropout : float, optional
+        Dropout for the decoder (Optional).
+    activation : Callable
+        The function to apply between layers, default nn.ReLU
+    normalize_before : bool
+        Whether to normalize before layers.
+    causal : bool
+        Whether to allow future information in decoding.
+    attention_type : str
+        Type of attention to use, "regularMHA" or "RelPosMHAXL"
+    emb : dict
+        embedding configuration
+
+    Example
+    -------
+    >>> src = torch.rand((8, 60, 512))
+    >>> tgt = torch.rand((8, 60, 512))
+    >>> net = TransformerDecoder(1, 8, 1024, d_model=512)
+    >>> output, _, _ = net(src, tgt)
+    >>> output.shape
+    torch.Size([8, 60, 512])
+    """
+
+    def __init__(
+        self,
+        num_layers,
+        nhead,
+        d_ffn,
+        d_model,
+        kdim=None,
+        vdim=None,
+        dropout=0.0,
+        activation=nn.ReLU,
+        normalize_before=False,
+        causal=False,
+        attention_type="regularMHA",
+        emb=None,
+    ):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(
+            [
+                TransformerDecoderLayer(
+                    d_ffn=d_ffn,
+                    nhead=nhead,
+                    d_model=d_model,
+                    kdim=kdim,
+                    vdim=vdim,
+                    dropout=dropout,
+                    activation=activation,
+                    normalize_before=normalize_before,
+                    causal=causal,
+                    attention_type=attention_type,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.norm = LayerNorm(d_model, eps=1e-6)
+        self.d_model = d_model
+        if emb is None:
+            emb = {}
+        self.emb_injection = {
+            key: self._build_emb_injection(
+                emb_config
+            )
+            for key, emb_config in emb.items()
+        }
+        self.emb_norm = {
+            key: LayerNorm(
+                input_size=emb_config["dim"],
+            ) for key, emb_config in emb.items()
+        }
+
+    def _build_emb_injection(self, emb_config):
+        """Builds an embedding enjection module corresponding
+        to the embedding configuration
+
+        Arguments
+        ---------
+        emb_config : dict
+            The embedding configuration
+
+        Return
+        ------
+        injection : callable
+            The injection module
+        """
+        emb_injection = emb_config.get("injection")
+        emb_size = emb_config["dim"]
+        if emb_injection is None:
+            emb_injection = EmbeddingInjection.NULL
+        if isinstance(emb_injection, str):
+            emb_injection = EmbeddingInjection(emb_injection)
+        if emb_injection in EMBEDDING_INJECTIONS:
+            emb_injection = EMBEDDING_INJECTIONS[emb_injection](
+                emb_size=emb_size,
+                out_size=self.d_model
+            )
+        return emb_injection
+
+    def forward(
+        self,
+        tgt,
+        memory,
+        tgt_mask=None,
+        memory_mask=None,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
+        pos_embs_tgt=None,
+        pos_embs_src=None,
+        emb=None
+    ):
+        """
+        Arguments
+        ----------
+        tgt : torch.Tensor
+            The sequence to the decoder layer (required).
+        memory : torch.Tensor
+            The sequence from the last layer of the encoder (required).
+        tgt_mask : torch.Tensor
+            The mask for the tgt sequence (optional).
+        memory_mask : torch.Tensor
+            The mask for the memory sequence (optional).
+        tgt_key_padding_mask : torch.Tensor
+            The mask for the tgt keys per batch (optional).
+        memory_key_padding_mask : torch.Tensor
+            The mask for the memory keys per batch (optional).
+        pos_embs_tgt : torch.Tensor
+            The positional embeddings for the target (optional).
+        pos_embs_src : torch.Tensor
+            The positional embeddings for the source (optional).
+        emb : dict
+            An str->tensor dictionary of embeddings
+        """
+        output = tgt
+        self_attns, multihead_attns = [], []
+
+        if emb is not None:
+            emb = {key: self.emb_norm[key](emb_item)
+                   for key, emb_item in emb.items()}
+
+        for dec_layer in self.layers:
+            layer_input = output
+            if emb is not None:
+                for key, emb_item in emb.items():
+                    output = self.emb_injection[key].before(output, emb_item)
+            output, self_attn, multihead_attn = dec_layer(
+                output,
+                memory,
+                tgt_mask=tgt_mask,
+                memory_mask=memory_mask,
+                tgt_key_padding_mask=tgt_key_padding_mask,
+                memory_key_padding_mask=memory_key_padding_mask,
+                pos_embs_tgt=pos_embs_tgt,
+                pos_embs_src=pos_embs_src,
+            )
+            self_attns.append(self_attn)
+            multihead_attns.append(multihead_attn)
+            if emb is not None:
+                for key, emb_item in emb.items():
+                    output = self.emb_injection[key].after(
+                        layer_input, output, emb_item
+                    )
+            # NOTE: This is a significant change after the last implementation - normalizing
+            # at every layer
+            output = self.norm(output)
+
+        return output, self_attns, multihead_attns
+
+
+class AdditiveEmbedding(nn.Module):
+    """A simple embedding scheme where a projection of the embedding is computed
+     and then added to the inputs. Outputs are passed straight through.
+
+    Arguments
+    ---------
+    emb_size : int
+        The embedding size
+    out_size : int
+        The output size
+    """
+    def __init__(self, emb_size, out_size):
+        super().__init__()
+        if emb_size == out_size:
+            self.in_proj = nn.Identity()
+        else:
+            self.in_proj = Linear(
+                input_size=emb_size,
+                n_neurons=out_size,
+            )
+    """A simple embedding mechanism that adds the embedding to the inputs before the layer"""
+    def before(self, inputs, emb):
+        """Injects embeddings into the model inputs
+
+        Arguments
+        ---------
+        inputs : torch.Tensor
+            The inputs
+        outputs : torch.Tensor
+            The outputs
+        emb : torch.Tensor
+            The embedding tensor
+
+        """
+        emb_proj = self.in_proj(emb)
+        return inputs + emb_proj.unsqueeze(1)
+
+    def after(self, inputs, outputs, emb):
+        return outputs
+
+    def forward(self, inputs, emb):
+        return self.before(inputs, emb)
+
+
+class FiLM(nn.Module):
+    """FiLM embedding
+
+    Arguments
+    ---------
+    emb_size : int
+        The embedding size
+    out_size : int
+        The output size
+    """
+    def __init__(self, emb_size, out_size):
+        super().__init__()
+        self.mult_proj = Linear(
+            input_size=emb_size,
+            n_neurons=out_size
+        )
+        self.add_proj = Linear(
+            input_size=emb_size,
+            n_neurons=out_size
+        )
+
+    def before(self, inputs, emb):
+        """Injects embeddings into the model inputs
+
+        Arguments
+        ---------
+        inputs : torch.Tensor
+            The inputs
+        emb : torch.Tensor
+            The embedding tensor
+
+        Returns
+        -------
+        outputs : torch.Tensor
+            The outputs, with embeddings injected
+        """
+        emb_proj = self.mult_proj(emb)
+        return inputs + emb_proj.unsqueeze(1) 
+
+    def after(self, inputs, outputs, emb):
+        """Injects embeddings into the model outputs
+
+        Arguments
+        ---------
+        inputs : torch.Tensor
+            The inputs
+        outputs : torch.Tensor
+            The outputs
+        emb : torch.Tensor
+            The embedding tensor
+
+        Returns
+        -------
+        outputs : torch.Tensor
+            The outputs, with embeddings injected
+        """
+        emb_proj = self.add_proj(emb)
+        return inputs + emb_proj.unsqueeze(1)
+
+
+class NullEmbedding(nn.Module):
+    """A no-op embedding (causing the embedding to be
+    completely ignored)
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def before(self, inputs, emb):
+        """Injects embeddings into the model inputs
+
+        Arguments
+        ---------
+        inputs : torch.Tensor
+            The inputs
+        emb : torch.Tensor
+            The embedding tensor
+
+        Returns
+        -------
+        outputs : torch.Tensor
+            The outputs, with embeddings injected
+        """        
+        return inputs
+
+    def after(self, inputs, emb):
+        """Injects embeddings into the model outputs
+
+        Arguments
+        ---------
+        inputs : torch.Tensor
+            The inputs
+        emb : torch.Tensor
+            The embedding tensor
+
+        Returns
+        -------
+        outputs : torch.Tensor
+            The outputs, with embeddings injected
+        """        
+        return inputs
+
+
+class EmbeddingInjection(Enum):
+    ADD = "add"
+    FILM = "film"
+    NULL = "null"
+
+
+EMBEDDING_INJECTIONS = {
+    EmbeddingInjection.NULL: NullEmbedding,
+    EmbeddingInjection.ADD: AdditiveEmbedding,
+    EmbeddingInjection.FILM: FiLM,
+}
