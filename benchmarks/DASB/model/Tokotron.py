@@ -2539,17 +2539,17 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         self.d_model = d_model
         if emb is None:
             emb = {}
-        self.emb_injection = {
+        self.emb_injection = nn.ModuleDict({
             key: self._build_emb_injection(
                 emb_config
             )
             for key, emb_config in emb.items()
-        }
-        self.emb_norm = {
+        })
+        self.emb_norm = nn.ModuleDict({
             key: LayerNorm(
                 input_size=emb_config["dim"],
             ) for key, emb_config in emb.items()
-        }
+        })
 
     def _build_emb_injection(self, emb_config):
         """Builds an embedding enjection module corresponding
