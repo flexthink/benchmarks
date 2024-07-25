@@ -2539,12 +2539,17 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         self.d_model = d_model
         if emb is None:
             emb = {}
-        self.emb_injection = nn.ModuleDict({
-            key: self._build_emb_injection(
-                emb_config
-            )
-            for key, emb_config in emb.items()
-        })
+        self.emb_injection = nn.ModuleList(
+            [
+                nn.ModuleDict({
+                    key: self._build_emb_injection(
+                        emb_config
+                    )
+                    for key, emb_config in emb.items()
+                })
+                for _ in range(num_layers)
+            ]
+        )
         self.emb_norm = nn.ModuleDict({
             key: LayerNorm(
                 input_size=emb_config["dim"],
@@ -2619,11 +2624,11 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
             emb = {key: self.emb_norm[key](emb_item)
                    for key, emb_item in emb.items()}
 
-        for dec_layer in self.layers:
+        for dec_layer, emb_injection in zip(self.layers, self.emb_injection):
             layer_input = output
             if emb is not None:
                 for key, emb_item in emb.items():
-                    output = self.emb_injection[key].before(output, emb_item)
+                    output = emb_injection[key].before(output, emb_item)
             output, self_attn, multihead_attn = dec_layer(
                 output,
                 memory,
@@ -2638,7 +2643,7 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
             multihead_attns.append(multihead_attn)
             if emb is not None:
                 for key, emb_item in emb.items():
-                    output = self.emb_injection[key].after(
+                    output = emb_injection[key].after(
                         layer_input, output, emb_item
                     )
             # NOTE: This is a significant change after the last implementation - normalizing
@@ -2668,6 +2673,8 @@ class AdditiveEmbedding(nn.Module):
                 input_size=emb_size,
                 n_neurons=out_size,
             )
+            nn.init.xavier_normal_(self.in_proj.w.weight)
+
     """A simple embedding mechanism that adds the embedding to the inputs before the layer"""
     def before(self, inputs, emb):
         """Injects embeddings into the model inputs
