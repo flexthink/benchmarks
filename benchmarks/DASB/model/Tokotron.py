@@ -2708,10 +2708,12 @@ class FiLM(nn.Module):
             input_size=emb_size,
             n_neurons=out_size
         )
+        nn.init.xavier_normal_(self.mult_proj.w.weight)
         self.add_proj = Linear(
             input_size=emb_size,
             n_neurons=out_size
         )
+        nn.init.xavier_normal_(self.add_proj.w.weight)
 
     def before(self, inputs, emb):
         """Injects embeddings into the model inputs
@@ -2729,7 +2731,7 @@ class FiLM(nn.Module):
             The outputs, with embeddings injected
         """
         emb_proj = self.mult_proj(emb)
-        return inputs + emb_proj.unsqueeze(1) 
+        return inputs * (emb_proj.unsqueeze(1) + 1)
 
     def after(self, inputs, outputs, emb):
         """Injects embeddings into the model outputs
