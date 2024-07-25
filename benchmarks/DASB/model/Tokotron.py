@@ -149,6 +149,8 @@ class TokotronTransformerDecoder(nn.Module):
         The continuous audio input dimension
     emb : dict
         The embedding configuration
+    layerwise_renorm : bool
+        Whether to apply normalization at the end of each decoder layer
     """
 
     def __init__(
@@ -177,6 +179,7 @@ class TokotronTransformerDecoder(nn.Module):
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
         emb=None,
+        layerwise_renorm=True,
     ):
         super().__init__()
         self.num_tokens = num_tokens
@@ -190,6 +193,7 @@ class TokotronTransformerDecoder(nn.Module):
             activation=activation,
             dropout=dropout,
             emb=emb,
+            layerwise_renorm=layerwise_renorm,
         )
         in_proj_size = audio_emb_size
         if multihead_input:
@@ -1081,6 +1085,9 @@ class TokotronTransformerModel(nn.Module):
                 "count" : 2
             }
         }
+    layerwise_renorm : bool
+        Whether to apply normalization at the end of each decoder layer
+        
     """
 
     def __init__(
@@ -1120,6 +1127,7 @@ class TokotronTransformerModel(nn.Module):
         position_shift_seed=42,
         max_position_shift=1800,
         emb=None,
+        layerwise_renorm=True,
     ):
         super().__init__()
         self.in_emb = Embedding(
@@ -1165,7 +1173,8 @@ class TokotronTransformerModel(nn.Module):
             multihead_input=self.decoder_mode == DecoderMode.AUTOREGRESSIVE,
             representation_mode=representation_mode,
             audio_dim=audio_dim,
-            emb=emb
+            emb=emb,
+            layerwise_renorm=layerwise_renorm,
         )
         self.bos_idx = bos_idx
         self.vocoder = vocoder
@@ -2516,6 +2525,7 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         causal=False,
         attention_type="regularMHA",
         emb=None,
+        layerwise_renorm=True,
     ):
         super().__init__()
         self.layers = torch.nn.ModuleList(
@@ -2555,6 +2565,7 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
                 input_size=emb_config["dim"],
             ) for key, emb_config in emb.items()
         })
+        self.layerwise_renorm = layerwise_renorm
 
     def _build_emb_injection(self, emb_config):
         """Builds an embedding enjection module corresponding
@@ -2648,6 +2659,10 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
                     )
             # NOTE: This is a significant change after the last implementation - normalizing
             # at every layer
+            if self.layerwise_renorm:
+                output = self.norm(output)
+
+        if not self.layerwise_renorm:
             output = self.norm(output)
 
         return output, self_attns, multihead_attns
