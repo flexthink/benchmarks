@@ -18,6 +18,7 @@ import speechbrain as sb
 import math
 import torch
 import sys
+from functools import partial
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.dataio.dataset import FilteredSortedDynamicItemDataset
@@ -63,13 +64,19 @@ class TokotronBrain(sb.Brain):
         if self.compression:
             audio = self.compression_model.compress(audio)
         audio = self.select_layers(audio)
+        spk_emb = (
+            batch.spk_emb_random_match.data
+            if self.hparams.spk_emb_shuffle
+            else batch.spk_emb.data
+        )
+        spk_emb = spk_emb.squeeze(1)
         predictions = self.modules.model(
             input_tokens=tokens,
             input_length=tokens_length,
             audio=audio,
             audio_length=audio_length,
             emb={
-                "spk": batch.spk_emb.data.squeeze(1)
+                "spk": spk_emb
             }
         )
 
@@ -252,6 +259,12 @@ class TokotronBrain(sb.Brain):
                 self.asr_model = self.hparams.asr_model(
                     run_opts=pretrained_run_opts
                 )
+
+        # If speaker embedding shuffling is enabled, re-initialize them for the
+        # epoch
+        if self.hparams.spk_emb_shuffle:
+            stage_key = stage.name.lower()
+            resample_fn[stage_key](epoch=epoch)
 
         # Reset the learning rate - if supported. This is useful when fine-tuning
         # a model pre-trained on another dataset
@@ -572,6 +585,15 @@ def dataio_prepare(hparams, guide_ctx=None):
         audio_bos = torch.cat([audio_bos_prefix, audio_pad], dim=0)
         yield audio_bos
 
+    def spk_emb_random_match(uttid, dataset, spk_sample):
+        # Sample a speaker-matched embedding
+        selected_idx = spk_sample[uttid]
+
+        # Retrieve the embedding value from the dataset
+        with dataset.output_keys_as(["spk_emb"]):
+            spk_emb = dataset[selected_idx]["spk_emb"]
+        return spk_emb
+
     dynamic_items = [text_pipeline, tokens_pipeline, audio_pipeline]
     output_keys = [
         "uttid",
@@ -584,9 +606,12 @@ def dataio_prepare(hparams, guide_ctx=None):
     if hparams["guides_enabled"] and hparams["guides_asr"]:
         dynamic_items.append(asr_tokens_pipeline)
         output_keys.append("asr_tokens")
+    if hparams["spk_emb_shuffle"]:
+        output_keys.append("spk_emb_random_match")
 
     init_sequence_encoder(hparams)
 
+    resample_fn = {}
     for dataset in data_info:
         dynamic_dataset = sb.dataio.dataset.DynamicItemDataset.from_json(
             json_path=data_info[dataset],
@@ -604,6 +629,30 @@ def dataio_prepare(hparams, guide_ctx=None):
 
         datasets[dataset] = dynamic_dataset
         hparams[f"{dataset}_dataloader_opts"]["shuffle"] = False
+        if hparams["spk_emb_shuffle"]:
+            spk_idx, spk_samplers = group_by_speaker(
+                dynamic_dataset,
+                hparams
+            )
+            spk_sample = {}
+            spk_emb_random_match_pipeline = partial(
+                spk_emb_random_match,
+                spk_sample=spk_sample,
+                dataset=dynamic_dataset.filtered_sorted(),
+            )
+            dynamic_dataset.add_dynamic_item(
+                func=spk_emb_random_match_pipeline,
+                takes=["uttid"],
+                provides=["spk_emb_random_match"],
+            )
+            resample_fn[dataset] = partial(
+                resample_spk,
+                spk_idx=spk_idx,
+                sample=spk_sample,
+                dataset=dynamic_dataset,
+                spk_samplers=spk_samplers
+            )
+            resample_fn[dataset](epoch=0)
 
     # Sorting training data with ascending order makes the code  much
     # faster  because we minimize zero-padding. In most of the cases, this
@@ -628,7 +677,7 @@ def dataio_prepare(hparams, guide_ctx=None):
         )
 
     datasets["sample"] = select_sample(hparams, datasets)
-    return datasets, silence_padding
+    return datasets, silence_padding, resample_fn
 
 
 def select_sample(hparams, datasets):
@@ -669,6 +718,84 @@ def select_sample(hparams, datasets):
                 for data_id in dataset.data_ids:
                     print(data_id, file=sample_file)
     return dataset
+
+
+def group_by_speaker(dataset, hparams):
+    """Groups utterance IDs in a dataset by speaker, for selection. The selection
+    is stable based on the seed - calling this method multiple times will always
+    result in the same order
+
+    Arguments
+    ---------
+    dataset : torch.Tensor
+        the dataset from which to select items
+    hparams : dict
+        hyperparameters
+    
+    Returns
+    -------
+    spk_idx : dict
+        a str -> int dictionary with a list of utterance indexes
+        for every speaker
+    spk_samplers : dict
+        a reproducible sampler for every speaker
+    spk_samplers_it : dict
+        an iterator for each sampler
+    """
+    spk_idx = {}
+    spk_samplers = {}
+    speakers = []
+    generator = torch.Generator()
+    generator.manual_seed(hparams["seed"])
+
+    # Group by speaker
+    with dataset.output_keys_as(["spk_id"]):
+        for idx, item in enumerate(dataset):
+            spk_id = item["spk_id"]
+            if spk_id not in spk_idx:
+                spk_idx[spk_id] = []
+            spk_idx[spk_id].append(idx)
+            speakers.append(spk_id)
+
+    # Create a reproducible sampler
+    for spk_id in speakers:
+        sampler = hparams["spk_sampler"](data_source=spk_idx[spk_id])
+        spk_samplers[spk_id] = sampler
+
+    return spk_idx, spk_samplers
+
+
+def resample_spk(sample, spk_idx, spk_samplers, dataset, epoch):
+    """Selects new samples
+
+    Arguments
+    ---------
+    spk_idx : dict
+        Data item indexes grouped by speaker
+    spk_samplers : dict
+        A sampler for each speaker
+    spk_samplers_it : dict
+        An iterator for each speaker
+    epoch : int
+        The epoch number
+
+    Returns
+    -------
+    sample : dict
+        a dictionary with uttids as keys and matching
+        indexes as values
+    """
+    if epoch is None:
+        epoch = 0
+    spk_samplers_it = {}
+    for spk_id, sampler in spk_samplers.items():
+        sampler.set_epoch(epoch)
+        spk_samplers_it[spk_id] = iter(sampler)
+    with dataset.output_keys_as(["uttid", "spk_id"]):
+        for item in dataset:
+            spk_item_idx = next(spk_samplers_it[item["spk_id"]])
+            dataset_item_idx = spk_idx[item["spk_id"]][spk_item_idx]
+            sample[item["uttid"]] = dataset_item_idx
 
 
 def init_sequence_encoder(hparams):
@@ -870,7 +997,11 @@ if __name__ == "__main__":
 
     # We can now directly create the datasets for training, valid, and test
     guide_ctx = get_guide_ctx(hparams, run_opts)
-    datasets, silence_padding = dataio_prepare(hparams, guide_ctx)
+    (
+        datasets,
+        silence_padding,
+        resample_fn
+    ) = dataio_prepare(hparams, guide_ctx)
 
     # Apply overfit test settings
     datasets = apply_overfit_test(hparams, datasets)
@@ -885,6 +1016,7 @@ if __name__ == "__main__":
         checkpointer=hparams["checkpointer"],
     )
     tts_brain.sample_data = datasets["sample"]
+    tts_brain.resample_fn = resample_fn
 
     # The `fit()` method iterates the training loop, calling the methods
     # necessary to update the parameters of the model. Since all objects
