@@ -1774,7 +1774,7 @@ class TokotronLoss(nn.Module):
         self.eos_index = eos_index
         self.eos_width = eos_width
         if spk_cost is None:
-            spk_cost = mse_loss
+            spk_cost = cosine_similarity_loss
         self.spk_cost = spk_cost
         self.spk_weight = spk_weight
         if asr_cost is None:
@@ -2798,7 +2798,7 @@ class NullEmbedding(nn.Module):
         -------
         outputs : torch.Tensor
             The outputs, with embeddings injected
-        """        
+        """
         return inputs
 
     def after(self, inputs, emb):
@@ -2815,7 +2815,7 @@ class NullEmbedding(nn.Module):
         -------
         outputs : torch.Tensor
             The outputs, with embeddings injected
-        """        
+        """
         return inputs
 
 
@@ -2830,3 +2830,29 @@ EMBEDDING_INJECTIONS = {
     EmbeddingInjection.ADD: AdditiveEmbedding,
     EmbeddingInjection.FILM: FiLM,
 }
+
+
+def cosine_similarity_loss(predictions, targets, reduction="mean"):
+    """A cosine similarity loss function compatible with losses in speechbrain.nnet.losses.
+    Used to compare embeddings (e.g. speaker embeddings)
+
+    Arguments
+    ---------
+    predictions : torch.Tensor
+        Predicted embeddings
+    targets : torch.Tensor
+        Ground truth embeddings
+    reduction : str
+        Options are "mean", "sum and "batch"
+    
+    Returns
+    -------
+    loss : torch.Tensor
+        The loss value
+    """
+    loss = torch.cosine_similarity(predictions, targets, dim=-1)
+    if reduction == "mean":
+        loss = loss.mean()
+    elif reduction == "sum":
+        loss = loss.sum()
+    return loss

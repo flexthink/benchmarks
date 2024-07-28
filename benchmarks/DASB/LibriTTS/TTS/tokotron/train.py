@@ -87,7 +87,8 @@ class TokotronBrain(sb.Brain):
             # a differentiable vocoder
             wav = self.modules.model.vocoder(
                 predictions.out,
-                audio_length
+                audio_length,
+                spk=spk_emb,
             )
             if self.hparams.guides_spk:
                 guides["spk"] = self._compute_spk(wav, audio_length)
