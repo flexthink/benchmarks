@@ -2850,7 +2850,7 @@ def cosine_similarity_loss(predictions, targets, reduction="mean"):
     loss : torch.Tensor
         The loss value
     """
-    loss = torch.cosine_similarity(predictions, targets, dim=-1)
+    loss = 1.0 - torch.cosine_similarity(predictions, targets, dim=-1)
     if reduction == "mean":
         loss = loss.mean()
     elif reduction == "sum":
