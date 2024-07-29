@@ -2855,4 +2855,6 @@ def cosine_similarity_loss(predictions, targets, reduction="mean"):
         loss = loss.mean()
     elif reduction == "sum":
         loss = loss.sum()
+    elif reduction == "batch":
+        loss = loss.squeeze(-1)
     return loss
