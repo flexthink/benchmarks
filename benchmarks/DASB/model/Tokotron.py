@@ -29,6 +29,7 @@ from speechbrain.nnet.normalization import LayerNorm
 from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss
 from benchmarks.DASB.model.custom_model import MultiEmbedding
 from speechbrain.dataio.dataio import length_to_mask
+from speechbrain.nnet.pooling import Pooling1d
 from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
@@ -2819,9 +2820,63 @@ class NullEmbedding(nn.Module):
         return inputs
 
 
+class ProjectiveEmbedding(nn.Module):
+    """An embedding embedding mechanism that combines the embedding
+
+    """
+    def __init__(
+        self,
+        emb_size,
+        out_size,
+        emb_proj_dim=64,
+        context_window=21,
+        context_dim=64,
+    ):
+        super().__init__()
+        self.emb_proj = Linear(
+            input_size=emb_size,
+            n_neurons=emb_proj_dim,
+        )
+        self.ctx_pool = Pooling1d(
+            pool_type="avg",
+            pool_axis=1,
+            kernel_size=context_window,
+            stride=1,
+            padding=context_window // 2
+        )
+        self.ctx_proj = Linear(
+            input_size=out_size,
+            n_neurons=context_dim,
+        )
+        self.emb_act = nn.LeakyReLU()
+        self.emb_proj_dim = emb_proj_dim
+        self.out_proj = Linear(
+            input_size=out_size + emb_proj_dim + context_dim,
+            n_neurons=out_size,
+        )
+
+    def before(self, inputs, emb):
+        return inputs
+
+    def after(self, inputs, outputs, emb):
+        batch_size, input_len, _ = inputs.shape
+        emb_proj = self.emb_proj(emb.unsqueeze(1))
+        emb_proj = self.emb_act(emb_proj)
+        emb_proj = emb_proj.expand(batch_size, input_len, self.emb_proj_dim)
+        ctx_proj = self.ctx_proj(inputs)
+        ctx_proj = self.ctx_pool(ctx_proj)
+        inputs_emb = torch.cat(
+            [inputs, emb_proj, ctx_proj],
+            dim=-1
+        )
+        outputs = self.out_proj(inputs_emb)
+        return outputs
+        
+
 class EmbeddingInjection(Enum):
     ADD = "add"
     FILM = "film"
+    PROJ = "proj"
     NULL = "null"
 
 
@@ -2829,6 +2884,7 @@ EMBEDDING_INJECTIONS = {
     EmbeddingInjection.NULL: NullEmbedding,
     EmbeddingInjection.ADD: AdditiveEmbedding,
     EmbeddingInjection.FILM: FiLM,
+    EmbeddingInjection.PROJ: ProjectiveEmbedding
 }
 
 
