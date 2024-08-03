@@ -1554,7 +1554,7 @@ class TokotronTransformerModel(nn.Module):
             pos_embs=pos_embs_encoder,
         )
         enc_out = self.add_emb(enc_out, emb)
-        dec_out = self.inference(enc_out, input_length)
+        dec_out = self.inference(enc_out, input_length, emb=emb)
         audio, audio_length = dec_out.audio, dec_out.length
         wav, wav_length = None, None
         if self.compression_model is not None:
