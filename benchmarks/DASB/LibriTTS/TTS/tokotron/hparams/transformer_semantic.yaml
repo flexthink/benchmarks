@@ -83,6 +83,12 @@ vocoder_src: !apply:speechbrain.utils.hparams.choice
 vocoder_available_layers: [1, 3, 7, 12, 18, 23]
 vocoder_takes_spk_emb: True
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
+spk_emb_discrete_src: !apply:speechbrain.utils.hparams.choice
+    value: !ref <ssl_model_type>
+    choices:
+        wavlm: flexthink/discrete_wavlm_spk_rec_ecapatdn_lite
+        hubert: flexthink/discrete_hubert_spk_rec_ecapatdn_lite
+        wav2vec2: flexthink/discrete_wav2vec2_spk_rec_ecapatdn_lite
 asr_src: speechbrain/asr-transformer-transformerlm-librispeech
 spk_emb_shuffle: True
 
@@ -173,10 +179,12 @@ use_silence_padding: True
 # Guides
 guides_enabled: False
 guides_start_epoch: 40
-guides_spk: True
+guides_spk: False
+guides_spk_discrete: True
 guides_spk_loss_weight: 0.2
 guides_asr: True
 guides_asr_loss_weight: 0.1
+
 
 
 # Token model (pretrained)
@@ -214,6 +222,13 @@ spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_h
     source: !ref <spk_emb_src>
     savedir: !ref <pretrained_model_save_folder>/ecapa
 
+spk_emb_discrete_guide: !name:speechbrain.inference.interfaces.foreign_class
+    source: !ref <spk_emb_discrete_src>
+    savedir: !ref <pretrained_model_save_folder>/ecapa-<ssl_model_type>
+    pymodule_file: custom_interface.py
+    classname: DiscreteSpkEmb
+    overrides:
+        ssl_layer_num_selected: !ref <token_model_layers>
 
 asr_model: !name:benchmarks.DASB.model.Tokotron.TransformerASRGuide
     source: !ref <asr_src>

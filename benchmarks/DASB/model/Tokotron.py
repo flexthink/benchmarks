@@ -33,7 +33,7 @@ from speechbrain.nnet.pooling import Pooling1d
 from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
-from speechbrain.inference import EncoderDecoderASR
+from speechbrain.inference import EncoderDecoderASR, Pretrained
 
 from enum import Enum
 from collections import namedtuple
@@ -2406,6 +2406,62 @@ class TransformerASRGuide(nn.Module):
         _, dec_out = self.asr.mods.transformer(transformer_in, tgt_bos, length)
         p_seq = self.asr.hparams.seq_lin(dec_out).log_softmax(-1)
         return p_seq
+    
+
+class DiscreteSpkEmb(Pretrained):
+    """Speaker embeddings based on discrete tokens"""
+
+    @classmethod
+    def from_hparams(
+        cls,
+        source,
+        hparams_file="hyperparams.yaml",
+        savedir=None,
+
+    ):
+        if savedir is None:
+            savedir = f"./pretrained_models/{cls.__name__}-{hashlib.md5(source.encode('UTF-8', errors='replace')).hexdigest()}"
+            hparams_local_path = fetch(
+                filename=hparams_file,
+                source=source,
+                savedir=savedir,
+                overwrite=False,
+                save_filename=None,
+                use_auth_token=use_auth_token,
+                revision=None,
+                huggingface_cache_dir=huggingface_cache_dir,
+            )
+            pymodule_local_path = fetch(
+                filename=pymodule_file,
+                source=source,
+                savedir=savedir,
+                overwrite=False,
+                save_filename=None,
+                use_auth_token=use_auth_token,
+                revision=None,
+                huggingface_cache_dir=huggingface_cache_dir,
+            )
+            sys.path.append(str(pymodule_local_path.parent))
+
+            # Load the modules:
+            with open(hparams_local_path) as fin:
+                hparams = load_hyperpyyaml(fin, overrides, overrides_must_match)
+
+            # Pretraining:
+            pretrainer = hparams["pretrainer"]
+            pretrainer.set_collect_in(savedir)
+            # For distributed setups, have this here:
+            run_on_main(pretrainer.collect_files, kwargs={"default_source": source})
+            # Load on the CPU. Later the params can be moved elsewhere by specifying
+            return 
+
+
+    def encode_batch(self, audio, length=None):
+        embeddings = self.mods.discrete_embedding_layer(audio)
+        att_w = self.mods.attention_mlp(embeddings)
+        feats = torch.matmul(att_w.transpose(2, -1), embeddings).squeeze(-2)
+        embeddings = self.mods.embedding_model(feats, length)
+        return embeddings.squeeze(1)
 
 
 class ShiftedPositionalEncoding(nn.Module):

@@ -82,16 +82,29 @@ class TokotronBrain(sb.Brain):
 
         guides = {}
 
+        # TODO: This is quick and dirty and can be modularized
         if self.guides_running():
             # Compute the raw waveform. This requires
             # a differentiable vocoder
-            wav = self.modules.model.vocoder(
-                predictions.out,
-                audio_length,
-                spk=spk_emb,
-            )
+            require_wavs = self.hparams.guides_spk or self.hparams.guides_asr
+            wav = None
+            if require_wavs:
+                wav = self.modules.model.vocoder(
+                    predictions.out,
+                    audio_length,
+                    spk=spk_emb,
+                )
             if self.hparams.guides_spk:
                 guides["spk"] = self._compute_spk(wav, audio_length)
+            if self.hparams.guides_spk_discrete:
+                spk_emb, spk_emb_ref = self._compute_spk_discrete(
+                    audio,
+                    audio_length,
+                    batch.audio_pad.data,
+                    batch.audio_pad.lengths
+                )
+                guides["spk"] = spk_emb
+                guides["spk_ref"] = spk_emb_ref
             if self.hparams.guides_asr:
                 asr_tokens, asr_tokens_length = batch.asr_tokens
                 guides["asr"] = self._compute_asr(
@@ -102,7 +115,7 @@ class TokotronBrain(sb.Brain):
                 )
 
         return predictions, guides
-    
+
     def _compute_spk(self, wav, wav_length):
         mel_spec = self.spk_emb_model.mel_spectogram(
             wav.squeeze(1))
@@ -110,7 +123,16 @@ class TokotronBrain(sb.Brain):
             mel_spec, wav_length
         )
         return spk_emb_pred
-    
+
+    def _compute_spk_discrete(self, audio, audio_length, audio_ref, auido_ref_length):
+        spk_emb = self.spk_emb_discrete_guide(
+            audio, audio_length
+        )
+        spk_emb_ref = self.spk_emb_discrete_guide(
+            audio_ref, auido_ref_length
+        )
+        return spk_emb, spk_emb_ref
+
     def _compute_asr(self, wav, wav_length, asr_tokens, asr_tokens_length):
         return self.asr_model(
             wav,
@@ -186,7 +208,7 @@ class TokotronBrain(sb.Brain):
             input_tokens=batch.tokens.data,
             input_length=batch.tokens.lengths,
             spk_pred=guides.get("spk"),
-            spk=batch.spk_emb.data,
+            spk=guides.get("spk_ref", batch.spk_emb.data),
             asr_pred=asr_pred,
             asr=asr,
             asr_length=asr_length,
@@ -199,7 +221,7 @@ class TokotronBrain(sb.Brain):
             input_tokens=batch.tokens.data,
             input_length=batch.tokens.lengths,
             spk_pred=guides.get("spk"),
-            spk=batch.spk_emb.data,
+            spk=guides.get("spk_ref", batch.spk_emb.data),
             asr_pred=asr_pred,
             asr=asr,
             asr_length=asr_length,
@@ -250,11 +272,19 @@ class TokotronBrain(sb.Brain):
             )
             self.modules.model.compression_model = self.compression_model
         if self.guides_running():
+            if self.hparams.guides_spk and self.hparams.guides_spk_discrete:
+                raise ValueError("guides_spk and guides_spk_discrete are mutually exclusive")
             if self.hparams.guides_spk:
                 logger.info("Training with the speaker identity guide")
                 self.spk_emb_model = self.hparams.spk_emb_model(
                     run_opts=pretrained_run_opts
                 )
+            if self.hparams.guides_spk_discrete:
+                logger.info("Training with the speaker identity guide - discrete")
+                self.spk_emb_discrete_guide = self.hparams.spk_emb_discrete_guide(
+                    run_opts=pretrained_run_opts
+                )
+
             if self.hparams.guides_asr:
                 logger.info("Training with the ASR guide")
                 self.asr_model = self.hparams.asr_model(
