@@ -379,7 +379,11 @@ def dataio_prepare(hparams):
         return label_encoder.encode_sequence_torch(label)
 
     use_silence_padding = hparams.get("use_silence_padding", True)
-    audio_tokens_per_step = len(as_list(hparams["token_model_layers"]))
+    audio_tokens_per_step = (
+        len(as_list(hparams["token_model_layers"]))
+        if hparams.get("token_model_layers")
+        else hparams["audio_tokens_per_step"]
+    )
     if use_silence_padding:
         silence_token, silence_emb = get_silence_token(
             hparams["token_model"],

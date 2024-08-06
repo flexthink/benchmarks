@@ -14,11 +14,15 @@ token_model_src: "facebook/encodec_24khz"
 g2p_src: flexthink/soundchoice-g2p
 vocoder_type: encodec
 vocoder_src: "charactr/vocos-encodec-24khz"
+spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
+use_spk_emb: False
+
 
 # Data files
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared
 pretrained_model_save_folder: !ref <prepare_save_folder>
+representation_mode: discrete
 prepare_archive_path: null
 prepare_skip_ignore_folders: False
 train_json: !ref <prepare_save_folder>/train.json
@@ -32,6 +36,7 @@ progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
+
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
@@ -102,6 +107,10 @@ token_model: !new:speechbrain.lobes.models.huggingface_transformers.Encodec
     bandwidth: !ref <bandwidth>
     flat_embeddings: True
 
+spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
+    source: !ref <spk_emb_src>
+    savedir: !ref <pretrained_model_save_folder>/ecapa
+
 # Dataloader options
 train_dataloader_opts:
     batch_size: !ref <batch_size>
@@ -138,6 +147,7 @@ extract_features_opts:
     token_model: !ref <token_model>
     sample_rate: !ref <sample_rate>
     model_sample_rate: !ref <model_sample_rate>
+    spk_emb_model: !ref <spk_emb_model>
 
 
 ####################### Model parameters ###########################
@@ -176,6 +186,12 @@ vocoder: !apply:speechbrain.utils.hparams.choice
             source: !ref <vocoder_src>
             save_path: !ref <pretrained_model_save_folder>
 
+emb:
+  spk:
+    kind: "pretrained"
+    dim: 192
+    vocoder: True
+
 model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel  # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
     audio_num_tokens: !ref <audio_num_tokens>
@@ -196,6 +212,11 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel  # yamllint 
     audio_emb_freeze: !ref <audio_emb_freeze>
     max_audio_length: !ref <max_audio_length>
     infer_max_audio_length: !ref <infer_max_audio_length>
+    emb: !apply:speechbrain.utils.hparams.choice
+        value: !ref <use_spk_emb>
+        choices: 
+            True: !ref <emb>
+            False: null
 
 modules:
     model: !ref <model>
