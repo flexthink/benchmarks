@@ -134,6 +134,7 @@ use_silence_padding: True
 token_model: !new:speechbrain.lobes.models.huggingface_transformers.Encodec
     source: !ref <token_model_src>
     save_path: !ref <pretrained_model_save_folder>
+    bandwidth: !ref <bandwidth>
     flat_embeddings: True
 
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
@@ -202,7 +203,8 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
     choices:
         text: !ref <text_num_tokens>
         phonemes: !ref <phn_num_tokens>
-audio_tokens_per_step: 6
+audio_tokens_per_step: 2
+bandwidth: 1.5
 attention_type: regularMHA
 
 ############################## models ################################
