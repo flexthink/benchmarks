@@ -76,8 +76,9 @@ class TokotronBrain(sb.Brain):
 
     def _get_selected_layer_idx(self):
         selected_layers = None
-        if self.hparams.select_layers:
-            layers = as_list(self.hparams.select_layers, dtype=int)
+        hparams_select_layers = getattr(self.hparams, "select_layers", None)
+        if hparams_select_layers:
+            layers = as_list(hparams_select_layers, dtype=int)
             model_layers_map = {
                 layer: idx
                 for idx, layer in enumerate(
@@ -100,7 +101,7 @@ class TokotronBrain(sb.Brain):
         audio_ssl : torch.Tensor
             SSL features, squished if enabled
         """
-        if self.hparams.select_layers:
+        if self.selected_layers:
             audio_ssl = audio_ssl[:, :, self.layer_idx]
         return audio_ssl
 
@@ -160,6 +161,7 @@ class TokotronBrain(sb.Brain):
         if hasattr(self.modules.vocoder, "model"):
             self.modules.vocoder.model.device = self.device
         self.layer_idx = self._get_selected_layer_idx()
+        self.selected_layers = getattr(self.hparams, "select_layers", None)
         self.create_perfect_samples()
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
             metric=self.hparams.compute_cost, batch_eval=True,
@@ -378,8 +380,9 @@ class TokotronBrain(sb.Brain):
                 max_key=max_key, min_key=min_key
             )
             if (
-                "optimizer" in self.checkpointer.recoverables
-                and "optimizer" not in ckpt.paramfiles
+                ckpt is not None
+                and "optimizer" in self.checkpointer.recoverables
+                and not (ckpt.paramfiles and "optimizer" in ckpt.paramfiles)
             ):
                 logger.warn("Optimizer not found in the checkpoint, recovering without it")
                 optimizer_rec = self.checkpointer.recoverables["optimizer"]
@@ -463,11 +466,15 @@ def dataio_prepare(hparams):
         return label_encoder.encode_sequence_torch(label)
 
     use_silence_padding = hparams.get("use_silence_padding", True)
-    audio_tokens_per_step = len(as_list(hparams["token_model_layers"]))
+    audio_tokens_per_step = (
+        len(as_list(hparams["token_model_layers"]))
+        if "token_model_layers" in hparams
+        else hparams["audio_tokens_per_step"]
+    )
     if use_silence_padding:
         silence_token, silence_emb = get_silence_token(
             hparams["token_model"],
-            extract_emb=True,
+            extract_emb=representation_mode == RepresentationMode.CONTINUOUS,
             model_kwargs=hparams.get("token_model_kwargs"),
         )
     else:

@@ -14,7 +14,8 @@ train_log: !ref <output_folder>/train_log.txt
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared
 pretrained_model_save_folder: !ref <prepare_save_folder>
-vocoder_model_name: vocos
+representation_mode: discrete
+vocoder_model_name: encodec
 vocoder_model_path: !ref <pretrained_model_save_folder>/<vocoder_model_name>
 prepare_archive_path: null
 prepare_skip_ignore_folders: False
@@ -57,6 +58,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # Training parameters
 input: text
 number_of_epochs: 1000
+reset_annealing_epoch: null
 batch_size: 16
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
@@ -104,8 +106,8 @@ beam_size: 5
 # Feature parameters
 sample_rate: 22050
 model_sample_rate: 16000
-max_audio_length: 1000
-infer_max_audio_length: !ref <max_audio_length>
+max_audio_length: 5000
+infer_max_audio_length: 1000
 debug_infer_max_audio_length: 10
 
 # Label encoder
