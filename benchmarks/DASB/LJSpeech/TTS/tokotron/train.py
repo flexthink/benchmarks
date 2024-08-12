@@ -807,7 +807,6 @@ def run_experiment(brain_cls):
     # Load best checkpoint for evaluation
     tts_brain.evaluate(
         test_set=datasets["test"],
-        min_key="loss",
         test_loader_kwargs=use_silence_padding(
             hparams["test_dataloader_opts"], silence_padding, audio_keys
         ),
