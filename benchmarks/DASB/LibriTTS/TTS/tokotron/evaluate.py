@@ -243,17 +243,20 @@ class TokotronEvaluator:
                     "spk": spk_emb
                 }
             )
+            vocoder_kwargs = {}
+            if self.hparams.vocoder_takes_spk_emb:
+                vocoder_kwargs["spk"] = spk_emb
             if self.vocoder_has_details:
                 wav, details = self.modules.vocoder.decode_batch_with_details(
                     infer_out.audio,
-                    spk=spk_emb,
+                    **vocoder_kwargs
                 )
                 length = infer_out.length
             else:
                 result = self.modules.vocoder(
                     infer_out.audio,
                     infer_out.length,
-                    spk=spk_emb
+                    **vocoder_kwargs
                 )
                 if torch.is_tensor(result):
                     wav, length = result, infer_out.length
