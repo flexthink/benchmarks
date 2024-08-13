@@ -122,6 +122,7 @@ class TokotronEvaluator:
         self.sample_text = []
         self.sample_file_names = []
         self.ref_file_names = []
+        self.fill_processed()
         logger.info("Starting evaluation")
         batch_count = math.ceil(len(dataset) / self.hparams.batch_size)
         for batch in tqdm(loader_it, desc="Evaluation", total=batch_count):
@@ -131,6 +132,17 @@ class TokotronEvaluator:
         if self.vocoder_has_details:
             self.write_attn()
         logger.info("Evaluation done")
+    
+    def fill_processed(self):
+        """Fills out the sample file names"""
+        for item_id in self.item_ids:
+            # TODO: Fill out the other _ref variables - they are currently not used
+            file_name = str(
+                self.samples_folder / f"{item_id}_pred.wav"
+            )            
+            self.sample_file_names.append(
+                file_name
+            )
 
     def create_reports(self):
         """Creates report files and report writers"""
