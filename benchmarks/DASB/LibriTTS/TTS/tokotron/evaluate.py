@@ -135,9 +135,14 @@ class TokotronEvaluator:
 
     def fill_processed(self):
         """Fills out the sample file names"""
-        for item_id in self.processed_ids:
+        for item_id in self.item_ids:
             # TODO: Fill out the other _ref variables - they are currently not used
-            self.sample_file_names.append(item_id)
+            file_name = str(
+                self.samples_folder / f"{item_id}_pred.wav"
+            )            
+            self.sample_file_names.append(
+                file_name
+            )
 
     def create_reports(self):
         """Creates report files and report writers"""
