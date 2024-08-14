@@ -2809,8 +2809,7 @@ class FiLM(nn.Module):
         outputs : torch.Tensor
             The outputs, with embeddings injected
         """
-        emb_proj = self.mult_proj(emb)
-        return inputs * (emb_proj.unsqueeze(1) + 1)
+        return inputs
 
     def after(self, inputs, outputs, emb):
         """Injects embeddings into the model outputs
@@ -2829,8 +2828,10 @@ class FiLM(nn.Module):
         outputs : torch.Tensor
             The outputs, with embeddings injected
         """
-        emb_proj = self.add_proj(emb)
-        return inputs + emb_proj.unsqueeze(1)
+        emb_proj_add = self.add_proj(emb)
+        emb_proj_mult = self.mult_proj(emb)
+        result = (emb_proj_mult.unsqueeze(1) + 1.0) * outputs + emb_proj_add.unsqueeze(1)
+        return result
 
 
 class NullEmbedding(nn.Module):
@@ -2876,7 +2877,7 @@ class NullEmbedding(nn.Module):
         return inputs
 
 
-class ProjectiveEmbedding(nn.Module):
+class ContextProjectiveEmbedding(nn.Module):
     """An embedding embedding mechanism that combines the embedding
 
     """
@@ -2915,24 +2916,57 @@ class ProjectiveEmbedding(nn.Module):
         return inputs
 
     def after(self, inputs, outputs, emb):
-        batch_size, input_len, _ = inputs.shape
+        batch_size, output_len, _ = outputs.shape
         emb_proj = self.emb_proj(emb.unsqueeze(1))
         emb_proj = self.emb_act(emb_proj)
-        emb_proj = emb_proj.expand(batch_size, input_len, self.emb_proj_dim)
+        emb_proj = emb_proj.expand(batch_size, output_len, self.emb_proj_dim)
         ctx_proj = self.ctx_proj(inputs)
         ctx_proj = self.ctx_pool(ctx_proj)
         inputs_emb = torch.cat(
-            [inputs, emb_proj, ctx_proj],
+            [outputs, emb_proj, ctx_proj],
             dim=-1
         )
         outputs = self.out_proj(inputs_emb)
         return outputs
-        
+
+
+class ProjectiveEmbedding(nn.Module):
+    """An embedding embedding mechanism that combines the embedding
+
+    """
+    def __init__(
+        self,
+        emb_size,
+        out_size,
+    ):
+        super().__init__()
+        self.out_proj = Linear(
+            input_size=emb_size + out_size,
+            n_neurons=out_size,
+        )
+        self.emb_act = nn.LeakyReLU()
+
+    def before(self, inputs, emb):
+        return inputs
+
+    def after(self, inputs, outputs, emb):
+        batch_size, input_len, _ = outputs.shape
+        emb = emb.unsqueeze(1)
+        emb = emb.expand(batch_size, input_len, emb.size(-1))
+        outputs = torch.cat(
+            [outputs, emb],
+            dim=-1
+        )
+        outputs = self.out_proj(outputs)
+        outputs = self.emb_act(outputs) + inputs
+        return outputs
+
 
 class EmbeddingInjection(Enum):
     ADD = "add"
     FILM = "film"
     PROJ = "proj"
+    CTXPROJ = "ctxproj"
     NULL = "null"
 
 
@@ -2940,7 +2974,8 @@ EMBEDDING_INJECTIONS = {
     EmbeddingInjection.NULL: NullEmbedding,
     EmbeddingInjection.ADD: AdditiveEmbedding,
     EmbeddingInjection.FILM: FiLM,
-    EmbeddingInjection.PROJ: ProjectiveEmbedding
+    EmbeddingInjection.PROJ: ProjectiveEmbedding,
+    EmbeddingInjection.CTXPROJ: ContextProjectiveEmbedding
 }
 
 
