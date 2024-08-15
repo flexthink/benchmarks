@@ -98,7 +98,7 @@ class TokotronBrain(sb.Brain):
                 guides["spk"] = self._compute_spk(wav, audio_length)
             if self.hparams.guides_spk_discrete:
                 spk_emb, spk_emb_ref = self._compute_spk_discrete(
-                    audio,
+                    predictions.out,
                     audio_length,
                     batch.audio_pad.data,
                     batch.audio_pad.lengths
@@ -125,6 +125,7 @@ class TokotronBrain(sb.Brain):
         return spk_emb_pred
 
     def _compute_spk_discrete(self, audio, audio_length, audio_ref, auido_ref_length):
+
         spk_emb = self.spk_emb_discrete_guide(
             audio, audio_length
         )
