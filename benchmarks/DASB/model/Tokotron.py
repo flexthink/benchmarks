@@ -34,6 +34,7 @@ from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
 from speechbrain.inference import EncoderDecoderASR, Pretrained
+from .mega import MegaDecoderLayer
 
 from enum import Enum
 from collections import namedtuple
@@ -118,6 +119,12 @@ class TokotronTransformerDecoder(nn.Module):
         The number of expected features in the encoder/decoder inputs (default=512).
     d_ffn : int, optional
         The dimension of the feedforward network model hidden layer.
+    n_dim : int
+        the number of dimensions (used for Mega)
+    z_dim: int
+        the latent dimension (used for Mega)
+    hidden_dim: int
+        the hidden dimension (used for Mega)
     nhead : int, optional
         The number of heads in the multi-head attention models (default=8).
     attention_type : str
@@ -161,6 +168,9 @@ class TokotronTransformerDecoder(nn.Module):
         d_model=512,
         d_ffn=2048,
         nhead=4,
+        z_dim=128,
+        hidden_dim=128,
+        n_dim=256,
         attention_type="regularMHA",
         num_layers=6,
         dropout=0.2,
@@ -185,17 +195,32 @@ class TokotronTransformerDecoder(nn.Module):
         super().__init__()
         self.num_tokens = num_tokens
         self.tokens_per_step = tokens_per_step
-        self.dec = EmbeddingGuidedTransformerDecoder(
-            d_model=d_model,
-            d_ffn=d_ffn,
-            nhead=nhead,
-            attention_type=attention_type,
-            num_layers=num_layers,
-            activation=activation,
-            dropout=dropout,
-            emb=emb,
-            layerwise_renorm=layerwise_renorm,
-        )
+        if attention_type == "Mega":
+            self.dec = EmbeddingGuidedMegaDecoder(
+                num_layers=num_layers,
+                d_model=d_model,
+                decoder_z_dim=z_dim,
+                decoder_hidden_dim=hidden_dim,
+                decoder_n_dim=n_dim,
+                decoder_ffn_embed_dim=d_ffn,
+                dropout=dropout,
+                attention_dropout=dropout,
+                hidden_dropout=dropout,
+                activation_dropout=dropout,
+                emb=emb
+            )
+        else:
+            self.dec = EmbeddingGuidedTransformerDecoder(
+                d_model=d_model,
+                d_ffn=d_ffn,
+                nhead=nhead,
+                attention_type=attention_type,
+                num_layers=num_layers,
+                activation=activation,
+                dropout=dropout,
+                emb=emb,
+                layerwise_renorm=layerwise_renorm,
+            )
         in_proj_size = audio_emb_size
         if multihead_input:
             in_proj_size *= tokens_per_step
@@ -323,6 +348,8 @@ class TokotronTransformerDecoder(nn.Module):
         tgt_mask = get_lookahead_mask(tgt)
         if self.attention_type == "RelPosMHAXL":
             pos_embs_tgt = self.positional_encoding(tgt)
+        elif self.attention_type == "Mega":
+            pos_embs_tgt = None
         else:
             tgt = tgt + self.positional_encoding(tgt, shift_tgt)
             pos_embs_tgt = None
@@ -1099,6 +1126,9 @@ class TokotronTransformerModel(nn.Module):
         d_model=512,
         d_ffn=2048,
         nhead=4,
+        z_dim=128,
+        hidden_dim=128,
+        n_dim=256,
         attention_type="regularMHA",
         enc_num_layers=6,
         dec_num_layers=6,
@@ -1137,12 +1167,16 @@ class TokotronTransformerModel(nn.Module):
         self.eos_mode = EosMode(eos_mode)
         self.d_model = d_model
         self.audio_token_shift = 1 if eos_mode == EosMode.TOKEN else 0
+        enc_attention_type = (
+            "regularMHA" if attention_type == "Mega"
+            else attention_type
+        )
         self.encoder = TransformerEncoder(
             num_layers=enc_num_layers,
             d_model=d_model,
             d_ffn=d_ffn,
             nhead=nhead,
-            attention_type=attention_type,
+            attention_type=enc_attention_type,
             dropout=dropout,
             activation=activation,
             normalize_before=True,
@@ -1158,6 +1192,9 @@ class TokotronTransformerModel(nn.Module):
             d_model=d_model,
             d_ffn=d_ffn,
             nhead=nhead,
+            z_dim=z_dim,
+            hidden_dim=hidden_dim,
+            n_dim=256,
             attention_type=attention_type,
             num_layers=dec_num_layers,
             activation=activation,
@@ -2528,6 +2565,103 @@ class ShiftedPositionalEncoding(nn.Module):
         return pe
 
 
+class EmbeddingGuidedMegaDecoder(nn.Module):
+    def __init__(
+        self,
+        num_layers=6,
+        d_model=512,
+        decoder_z_dim=128,
+        decoder_hidden_dim=128,
+        decoder_n_dim=256,
+        decoder_ffn_embed_dim=2048,
+        dropout=0.2,
+        attention_dropout=0.2,
+        hidden_dropout=0.2,
+        activation_dropout=0.2,
+        chunk_size=-1,
+        truncation_length=None,
+        activation=nn.SiLU,
+        attention_activation="softmax",
+        max_source_positions=1000,
+        max_target_positions=1000,
+        emb=None,
+    ):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(
+            [
+                MegaDecoderLayer(
+                    embed_dim=d_model,
+                    decoder_z_dim=decoder_z_dim,
+                    decoder_hidden_dim=decoder_hidden_dim,
+                    decoder_n_dim=decoder_n_dim,
+                    decoder_ffn_embed_dim=decoder_ffn_embed_dim,
+                    dropout=dropout,
+                    attention_dropout=attention_dropout,
+                    hidden_dropout=hidden_dropout,
+                    activation_dropout=activation_dropout,
+                    decoder_chunk_size=chunk_size,
+                    truncation_length=truncation_length,
+                    activation=activation,
+                    attention_activation=attention_activation,
+                    bidirectional=False,
+                    normalize_before=True,
+                    max_source_positions=max_source_positions,
+                    max_target_positions=max_target_positions,
+
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.emb = emb
+        self.emb_injection = _build_emb_injections(
+            emb, d_model, num_layers
+        )
+        self.emb_norm = _build_emb_norms(emb)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        tgt,
+        memory,
+        tgt_mask=None,
+        memory_mask=None,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
+        pos_embs_tgt=None,
+        pos_embs_src=None,
+        emb=None
+    ):
+        output = tgt
+        self_attns, cross_attns = [], []
+
+        if emb is not None:
+            emb = {key: self.emb_norm[key](emb_item)
+                   for key, emb_item in emb.items()}
+
+        for dec_layer, emb_injection in zip(self.layers, self.emb_injection):
+            layer_input = output
+            if emb is not None:
+                for key, emb_item in emb.items():
+                    output = emb_injection[key].before(output, emb_item)
+            output, self_attn, cross_attn = dec_layer(
+                output,
+                memory,
+                tgt_mask=tgt_mask,
+                tgt_key_padding_mask=tgt_key_padding_mask,
+                memory_key_padding_mask=memory_key_padding_mask,
+            )
+            self_attns.append(self_attn)
+            cross_attns.append(cross_attn)
+            if emb is not None:
+                for key, emb_item in emb.items():
+                    output = emb_injection[key].after(
+                        layer_input, output, emb_item
+                    )
+
+        output = self.norm(output)
+        return output, self_attns, cross_attns
+       
+
 class EmbeddingGuidedTransformerDecoder(nn.Module):
     """This class implements the Transformer decoder with embedding injections
 
@@ -2606,50 +2740,11 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         self.d_model = d_model
         if emb is None:
             emb = {}
-        self.emb_injection = nn.ModuleList(
-            [
-                nn.ModuleDict({
-                    key: self._build_emb_injection(
-                        emb_config
-                    )
-                    for key, emb_config in emb.items()
-                })
-                for _ in range(num_layers)
-            ]
+        self.emb_injection = _build_emb_injections(
+            emb, d_model, num_layers
         )
-        self.emb_norm = nn.ModuleDict({
-            key: LayerNorm(
-                input_size=emb_config["dim"],
-            ) for key, emb_config in emb.items()
-        })
+        self.emb_norm = _build_emb_norms(emb)
         self.layerwise_renorm = layerwise_renorm
-
-    def _build_emb_injection(self, emb_config):
-        """Builds an embedding enjection module corresponding
-        to the embedding configuration
-
-        Arguments
-        ---------
-        emb_config : dict
-            The embedding configuration
-
-        Return
-        ------
-        injection : callable
-            The injection module
-        """
-        emb_injection = emb_config.get("injection")
-        emb_size = emb_config["dim"]
-        if emb_injection is None:
-            emb_injection = EmbeddingInjection.NULL
-        if isinstance(emb_injection, str):
-            emb_injection = EmbeddingInjection(emb_injection)
-        if emb_injection in EMBEDDING_INJECTIONS:
-            emb_injection = EMBEDDING_INJECTIONS[emb_injection](
-                emb_size=emb_size,
-                out_size=self.d_model
-            )
-        return emb_injection
 
     def forward(
         self,
@@ -2724,6 +2819,59 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
 
         return output, self_attns, multihead_attns
 
+
+def _build_emb_injection(emb_config, d_model):
+    """Builds an embedding enjection module corresponding
+    to the embedding configuration
+
+    Arguments
+    ---------
+    emb_config : dict
+        The embedding configuration
+
+    d_model: int
+        The model dimension
+
+    Return
+    ------
+    injection : callable
+        The injection module
+    """
+    emb_injection = emb_config.get("injection")
+    emb_size = emb_config["dim"]
+    if emb_injection is None:
+        emb_injection = EmbeddingInjection.NULL
+    if isinstance(emb_injection, str):
+        emb_injection = EmbeddingInjection(emb_injection)
+    if emb_injection in EMBEDDING_INJECTIONS:
+        emb_injection = EMBEDDING_INJECTIONS[emb_injection](
+            emb_size=emb_size,
+            out_size=d_model
+        )
+    return emb_injection
+
+
+def _build_emb_injections(emb, d_model, num_layers):
+    return nn.ModuleList(
+        [
+            nn.ModuleDict({
+                key: _build_emb_injection(
+                    emb_config,
+                    d_model
+                )
+                for key, emb_config in emb.items()
+            })
+            for _ in range(num_layers)
+        ]
+    )
+
+
+def _build_emb_norms(emb):
+    return nn.ModuleDict({
+        key: LayerNorm(
+            input_size=emb_config["dim"],
+        ) for key, emb_config in emb.items()
+    })    
 
 class AdditiveEmbedding(nn.Module):
     """A simple embedding scheme where a projection of the embedding is computed
@@ -3005,3 +3153,4 @@ def cosine_similarity_loss(predictions, targets, reduction="mean"):
     elif reduction == "batch":
         loss = loss.squeeze(-1)
     return loss
+
