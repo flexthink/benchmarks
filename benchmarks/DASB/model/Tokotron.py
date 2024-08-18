@@ -190,6 +190,7 @@ class TokotronTransformerDecoder(nn.Module):
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
         emb=None,
+        max_audio_length=2000,
         layerwise_renorm=True,
     ):
         super().__init__()
@@ -207,6 +208,7 @@ class TokotronTransformerDecoder(nn.Module):
                 attention_dropout=dropout,
                 hidden_dropout=dropout,
                 activation_dropout=dropout,
+                max_target_positions=max_audio_length,
                 emb=emb
             )
         else:
@@ -1213,6 +1215,7 @@ class TokotronTransformerModel(nn.Module):
             audio_dim=audio_dim,
             emb=emb,
             layerwise_renorm=layerwise_renorm,
+            max_audio_length=max_audio_length,
         )
         self.bos_idx = bos_idx
         self.vocoder = vocoder
