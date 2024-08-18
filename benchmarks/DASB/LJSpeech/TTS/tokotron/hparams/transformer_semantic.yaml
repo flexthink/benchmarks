@@ -248,6 +248,9 @@ enc_num_layers: 6
 dec_num_layers: 12
 layerwise_renorm: True
 d_ffn: 2048
+z_dim: 128
+hidden_dim: 2048
+n_dim: 16
 transformer_dropout: 0.2
 target_dropout: 0.2
 activation: !name:torch.nn.GELU
@@ -326,6 +329,9 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     d_model: !ref <d_model>
     d_ffn: !ref <d_ffn>
+    z_dim: !ref <z_dim>
+    hidden_dim: !ref <hidden_dim>
+    n_dim: !ref <n_dim>    
     nhead: !ref <nhead>
     enc_num_layers: !ref <enc_num_layers>
     dec_num_layers: !ref <dec_num_layers>
