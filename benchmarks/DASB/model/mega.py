@@ -865,3 +865,168 @@ class MegaDecoderLayer(nn.Module):
         x = self.nffn(x)
 
         return x, mega_attn, cross_attn
+    
+
+class MegaEncoderLayer(nn.Module):
+    """
+        Implements a Flash-Quad encoder layer.
+    """
+
+    def __init__(
+        self,
+        embedding_dim=512,
+        hidden_dim=1024,
+        ffn_hidden_dim=1024,
+        z_dim=128,
+        n_dim=16,
+        dropout=0.0,
+        attention_dropout=0.0,
+        hidden_dropout=0.0,
+        chunk_size=-1,
+        truncation=None,
+        rel_pos_bias='simple',
+        max_positions=1024,
+        activation=nn.SiLU,
+        attention_activation='softmax',
+        prenorm=True,
+    ):
+        super().__init__()
+
+        self.embedding_dim = embedding_dim
+        self.chunk_size = chunk_size
+        self.mega_layer = MovingAverageGatedAttention(
+            embed_dim=embedding_dim,
+            zdim=z_dim,
+            hdim=hidden_dim,
+            ndim=n_dim,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            hidden_dropout=hidden_dropout,
+            chunk_size=chunk_size,
+            truncation=truncation,
+            rel_pos_bias=rel_pos_bias,
+            max_positions=max_positions,
+            activation=activation,
+            attention_activation=attention_activation,
+            bidirectional=True,
+            prenorm=prenorm,
+        )
+
+        self.nffn = NormalizedFeedForwardNetwork(
+            embed_dim=embedding_dim,
+            ffn_hidden_dim=ffn_hidden_dim,
+            dropout=dropout,
+            hidden_dropout=hidden_dropout,
+            activation=activation,
+            prenorm=prenorm,
+        )
+
+    def forward(
+        self,
+        src,
+        src_mask=None,
+        src_key_padding_mask=None,
+    ):
+
+        x = src
+        seq_len = x.size(0)
+        if self.chunk_size > 0:
+            assert seq_len % self.chunk_size == 0, 'the input sequence length {} cannot be divided by chunk size {}'.format(seq_len, self.chunk_size)
+        x, attn = self.mega_layer(x, attn_mask=src_mask, padding_mask=src_key_padding_mask)
+        x = self.nffn(x)
+
+        return x, attn
+
+
+class MegaEncoder(nn.Module):
+    """
+    Mega encoder consisting of *encoder_layers* layers. Each layer is a :class:`MegaEncoderLayer`.
+
+    Args:
+        args (argparse.Namespace): parsed command-line arguments
+        dictionary (~fairseq.data.Dictionary): encoding dictionary
+        embed_tokens (torch.nn.Embedding): input embedding
+    """
+
+    def __init__(
+        self,
+        num_layers=6,
+        d_model=256,
+        hidden_dim=1024,
+        ffn_hidden_dim=1024,
+        z_dim=128,
+        n_dim=16,
+        dropout=0.0,
+        attention_dropout=0.0,
+        hidden_dropout=0.0,
+        chunk_size=-1,
+        truncation=None,
+        rel_pos_bias='simple',
+        max_positions=1024,
+        activation=nn.SiLU,
+        encoder_chunk_size=-1,
+        no_scale_embedding=False,
+        max_source_positions=1000,
+        normalize_before=True,
+        attention_activation='softmax',
+    ):
+        super().__init__()
+        self.register_buffer("version", torch.Tensor([3]))
+
+        self.embedding_dropout = nn.Dropout(dropout)
+
+        self.max_source_positions = max_source_positions
+        self.chunk_size = encoder_chunk_size
+        self.embed_scale = 1.0 if no_scale_embedding else math.sqrt(d_model)
+        self.embed_norm = nn.LayerNorm(d_model)
+
+        self.layers = nn.ModuleList([
+            MegaEncoderLayer(
+                embedding_dim=d_model,
+                hidden_dim=hidden_dim,
+                ffn_hidden_dim=ffn_hidden_dim,
+                z_dim=z_dim,
+                n_dim=n_dim,
+                dropout=dropout,
+                attention_dropout=attention_dropout,
+                hidden_dropout=hidden_dropout,
+                chunk_size=chunk_size,
+                truncation=truncation,
+                rel_pos_bias=rel_pos_bias,
+                max_positions=max_positions,
+                activation=activation,
+                attention_activation=attention_activation,
+                prenorm=normalize_before
+            )
+            for i in range(num_layers)
+        ])
+        self.num_layers = len(self.layers)
+
+        self.final_norm = nn.LayerNorm(d_model)
+
+    def forward(
+        self,
+        src,
+        src_mask=None,
+        src_key_padding_mask=None,
+        pos_embs=None,
+    ):
+        x = src
+        if self.embed_norm is not None:
+            x = self.embed_norm(x)
+
+        x = self.embedding_dropout(x)
+        attn = []
+        # encoder layers
+        for layer in self.layers:
+            x, layer_attn = layer(
+                x,
+                src_mask=src_mask,
+                src_key_padding_mask=src_key_padding_mask
+            )
+            attn.append(layer_attn)
+
+        if self.final_norm is not None:
+            x = self.final_norm(x)
+
+        return x, attn

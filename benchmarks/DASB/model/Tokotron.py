@@ -34,7 +34,7 @@ from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
 from speechbrain.inference import EncoderDecoderASR, Pretrained
-from .mega import MegaDecoderLayer
+from .mega import MegaDecoderLayer, MegaEncoder
 
 from enum import Enum
 from collections import namedtuple
@@ -1169,20 +1169,29 @@ class TokotronTransformerModel(nn.Module):
         self.eos_mode = EosMode(eos_mode)
         self.d_model = d_model
         self.audio_token_shift = 1 if eos_mode == EosMode.TOKEN else 0
-        enc_attention_type = (
-            "regularMHA" if attention_type == "Mega"
-            else attention_type
-        )
-        self.encoder = TransformerEncoder(
-            num_layers=enc_num_layers,
-            d_model=d_model,
-            d_ffn=d_ffn,
-            nhead=nhead,
-            attention_type=enc_attention_type,
-            dropout=dropout,
-            activation=activation,
-            normalize_before=True,
-        )
+        if attention_type == "Mega":
+            self.encoder = MegaEncoder(
+                num_layers=dec_num_layers,
+                d_model=d_model,
+                hidden_dim=hidden_dim,
+                ffn_hidden_dim=d_ffn,
+                z_dim=z_dim,
+                n_dim=n_dim,
+                dropout=dropout,
+                attention_dropout=dropout,
+                hidden_dropout=dropout,
+            )
+        else: 
+            self.encoder = TransformerEncoder(
+                num_layers=enc_num_layers,
+                d_model=d_model,
+                d_ffn=d_ffn,
+                nhead=nhead,
+                attention_type=attention_type,
+                dropout=dropout,
+                activation=activation,
+                normalize_before=True,
+            )
         self.decoder_mode = DecoderMode(decoder_mode)
         audio_emb = None
         if self.decoder_mode == DecoderMode.FORWARD:
@@ -1535,6 +1544,9 @@ class TokotronTransformerModel(nn.Module):
         if self.attention_type == "RelPosMHAXL":
             src = in_emb
             pos_embs_encoder = self.positional_encoding(in_emb)
+        elif self.attention_type == "Mega":
+            src = in_emb
+            pos_embs_encoder = None  
         else:
             src = in_emb + self.positional_encoding(
                 in_emb, shift_src
