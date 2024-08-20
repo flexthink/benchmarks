@@ -171,6 +171,7 @@ class TokotronTransformerDecoder(nn.Module):
         z_dim=128,
         hidden_dim=128,
         n_dim=256,
+        chunk_size=-1,
         attention_type="regularMHA",
         num_layers=6,
         dropout=0.2,
@@ -209,6 +210,7 @@ class TokotronTransformerDecoder(nn.Module):
                 hidden_dropout=dropout,
                 activation_dropout=dropout,
                 max_target_positions=max_audio_length,
+                chunk_size=chunk_size,
                 emb=emb
             )
         else:
@@ -1131,6 +1133,7 @@ class TokotronTransformerModel(nn.Module):
         z_dim=128,
         hidden_dim=128,
         n_dim=256,
+        decoder_chunk_size=-1,
         attention_type="regularMHA",
         enc_num_layers=6,
         dec_num_layers=6,
@@ -1206,6 +1209,7 @@ class TokotronTransformerModel(nn.Module):
             z_dim=z_dim,
             hidden_dim=hidden_dim,
             n_dim=256,
+            chunk_size=decoder_chunk_size,
             attention_type=attention_type,
             num_layers=dec_num_layers,
             activation=activation,

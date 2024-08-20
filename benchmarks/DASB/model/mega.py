@@ -6,6 +6,7 @@ Authors
 """
 
 from torch import nn
+from speechbrain.utils.data_utils import pad_right_to
 import torch
 import torch.nn.functional as F
 import math
@@ -801,6 +802,7 @@ class MegaDecoderLayer(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
+        self.decoder_chunk_size = decoder_chunk_size
         self.mega_layer = MovingAverageGatedAttention(
             embed_dim=embed_dim,
             zdim=decoder_z_dim,
@@ -849,8 +851,36 @@ class MegaDecoderLayer(nn.Module):
         tgt_mask=None,
         tgt_key_padding_mask=None,
     ):
+        batch_size, max_len, feature_dim = tgt.shape
+        if self.decoder_chunk_size > 0:
+            pad_len = math.ceil(max_len / self.decoder_chunk_size) * self.decoder_chunk_size
+            x, _ = pad_right_to(
+                tgt,
+                (batch_size, pad_len, feature_dim)
+            )
+            len_diff = pad_len - max_len
+            if tgt_key_padding_mask is not None:
+                tgt_key_padding_mask = torch.cat([
+                    tgt_key_padding_mask,
+                    (
+                        torch.tensor(True, device=tgt_key_padding_mask.device)[None, :]
+                        .expand_as(batch_size, len_diff)
+                    )
+                ])
+            if tgt_mask is not None:
+                tgt_mask = tgt_mask[:self.decoder_chunk_size, :self.decoder_chunk_size]
+                if tgt_mask.shape[0] < self.decoder_chunk_size:
+                    old_tgt_mask = tgt_mask
+                    tgt_mask = torch.ones(
+                        (self.decoder_chunk_size, self.decoder_chunk_size),
+                        device=tgt_mask.device
+                    ) * -torch.inf
+                    tgt_mask[:old_tgt_mask.size(0), :old_tgt_mask.size(1)] = old_tgt_mask
+        else:
+            x = tgt
+
         x, mega_attn = self.mega_layer(
-            x=tgt,
+            x=x,
             padding_mask=tgt_key_padding_mask,
             attn_mask=tgt_mask
         )
@@ -863,9 +893,16 @@ class MegaDecoderLayer(nn.Module):
         )
 
         x = self.nffn(x)
+        if self.decoder_chunk_size > 0:
+            x = x[:, :max_len, :]
+            mega_attn = [
+                attn[:, :max_len, :]
+                for attn in mega_attn
+            ]
+            cross_attn = cross_attn[:, :max_len, :]
 
         return x, mega_attn, cross_attn
-    
+
 
 class MegaEncoderLayer(nn.Module):
     """
