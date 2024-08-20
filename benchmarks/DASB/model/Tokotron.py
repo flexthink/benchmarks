@@ -274,6 +274,7 @@ class TokotronTransformerDecoder(nn.Module):
         self.multihead_input = multihead_input
         self.d_model = d_model
         self.d_model_sqrt = math.sqrt(d_model)
+        self.chunk_size = chunk_size
 
     def decode(
         self,
@@ -349,7 +350,13 @@ class TokotronTransformerDecoder(nn.Module):
         tgt = self.tgt_in_proj(audio_emb_combined)
         tgt = F.dropout(tgt, self.target_dropout, training=self.training)
 
-        tgt_mask = get_lookahead_mask(tgt)
+        if self.attention_type == "Mega" and self.chunk_size > 0:
+            tgt_mask = get_lookahead_mask_for_length(
+                self.chunk_size,
+                device=tgt.device
+            )
+        else:
+            tgt_mask = get_lookahead_mask(tgt)
         if self.attention_type == "RelPosMHAXL":
             pos_embs_tgt = self.positional_encoding(tgt)
         elif self.attention_type == "Mega":
@@ -3173,3 +3180,40 @@ def cosine_similarity_loss(predictions, targets, reduction="mean"):
         loss = loss.squeeze(-1)
     return loss
 
+
+def get_lookahead_mask_for_length(seq_len, device=None):
+    """Creates a binary mask for each sequence which masks future frames.
+
+    Arguments
+    ---------
+    seq_len: int
+        The sequence length
+    device : torch.Device | str
+        The target device
+
+    Returns
+    -------
+    mask : torch.Tensor
+        Binary mask for masking future frames.
+
+    Example
+    -------
+    >>> a = torch.LongTensor([[1,1,0], [2,3,0], [4,5,0]])
+    >>> get_lookahead_mask(a)
+    tensor([[0., -inf, -inf],
+            [0., 0., -inf],
+            [0., 0., 0.]])
+    """
+    mask = (
+        torch.triu(torch.ones((seq_len, seq_len), device=device))
+        == 1
+    ).transpose(0, 1)
+    mask = (
+        mask.float()
+        .masked_fill(mask == 0, float("-inf"))
+        .masked_fill(mask == 1, float(0.0))
+    )
+    mask = mask.detach()
+    if device is not None:
+        mask = mask.to(device)
+    return mask

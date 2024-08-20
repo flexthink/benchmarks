@@ -869,13 +869,6 @@ class MegaDecoderLayer(nn.Module):
                 ])
             if tgt_mask is not None:
                 tgt_mask = tgt_mask[:self.decoder_chunk_size, :self.decoder_chunk_size]
-                if tgt_mask.shape[0] < self.decoder_chunk_size:
-                    old_tgt_mask = tgt_mask
-                    tgt_mask = torch.ones(
-                        (self.decoder_chunk_size, self.decoder_chunk_size),
-                        device=tgt_mask.device
-                    ) * -torch.inf
-                    tgt_mask[:old_tgt_mask.size(0), :old_tgt_mask.size(1)] = old_tgt_mask
         else:
             x = tgt
 
