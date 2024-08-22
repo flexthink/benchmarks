@@ -15,7 +15,7 @@ data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared
 pretrained_model_save_folder: !ref <prepare_save_folder>
 representation_mode: discrete
-vocoder_model_name: encodec
+vocoder_model_name: vocos
 vocoder_model_path: !ref <pretrained_model_save_folder>/<vocoder_model_name>
 prepare_archive_path: null
 prepare_skip_ignore_folders: False
@@ -41,11 +41,9 @@ num_audio_samples: 32
 samples_interval: 5
 
 freeze_token_model: True
-token_model_src: "facebook/encodec_24khz"
+token_model_src: "fnlp/SpeechTokenizer"
 g2p_src: flexthink/soundchoice-g2p
 token_offset: 1
-vocoder_type: encodec
-vocoder_src: "charactr/vocos-encodec-24khz"
 vocoder_takes_spk_emb: False
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 
@@ -131,11 +129,12 @@ use_silence_padding: True
 
 
 # Token model (pretrained)
-token_model: !new:speechbrain.lobes.models.huggingface_transformers.Encodec
+# Token model (pretrained)
+token_model: !new:benchmarks.DASB.model.custom_model.SpeechTokenizerInterface
     source: !ref <token_model_src>
     save_path: !ref <pretrained_model_save_folder>
-    bandwidth: !ref <bandwidth>
-    flat_embeddings: True
+    shape: compat
+    codebooks: !ref <audio_tokens_per_step>
 
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
@@ -207,21 +206,13 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
     choices:
         text: !ref <text_num_tokens>
         phonemes: !ref <phn_num_tokens>
-audio_tokens_per_step: 2
-bandwidth: 1.5
+audio_tokens_per_step: 6
 attention_type: regularMHA
 
 ############################## models ################################
 
-vocoder: !apply:speechbrain.utils.hparams.choice
-    value: !ref <vocoder_type>
-    choices:
-        encodec: !new:benchmarks.DASB.model.custom_model.EncodecVocoder
-            encodec: !ref <token_model>
-        vocos: !new:speechbrain.lobes.models.huggingface_transformers.vocos.Vocos
-            source: !ref <vocoder_src>
-            save_path: !ref <pretrained_model_save_folder>
-
+vocoder: !new:benchmarks.DASB.model.custom_model.SpeechTokenizerVocoder
+    tokenizer: !ref <token_model>
 
 inference_search: !new:benchmarks.DASB.model.Tokotron.TokotronSearchInference
     bos_index: !ref <bos_index>
@@ -259,7 +250,7 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     z_dim: !ref <z_dim>
     hidden_dim: !ref <hidden_dim>
     n_dim: !ref <n_dim>
-    decoder_chunk_size: !ref <decoder_chunk_size>
+    decoder_chunk_size: !ref <decoder_chunk_size>    
     nhead: !ref <nhead>
     enc_num_layers: !ref <enc_num_layers>
     dec_num_layers: !ref <dec_num_layers>
