@@ -11,6 +11,7 @@ import math
 import sys
 import csv
 import torch
+import torchaudio
 import string
 import re
 from pathlib import Path
@@ -48,6 +49,10 @@ class TokotronEvaluator:
         self.output_folder = Path(self.hparams.output_folder) / eval_folder
         self.samples_folder = self.output_folder / "samples"
         self.samples_folder.mkdir(parents=True, exist_ok=True)
+        if self.hparams.use_spk_emb:
+            self.spk_emb_model = self.hparams.spk_emb_model(
+                run_opts={"device": device}
+            )
         self.modules.model.vocoder = None
         self.vocoder_has_details = hasattr(
             self.modules.vocoder, "decode_batch_with_details"
@@ -191,17 +196,36 @@ class TokotronEvaluator:
             batch = batch.to(self.device)
             tokens, tokens_length = batch.tokens
             vocoder_to_device(self.modules.vocoder, self.device)
+            if self.hparams.use_spk_emb:
+                audio_resampled = torchaudio.functional.resample(
+                    batch.sig.data,
+                    self.hparams.sample_rate,
+                    self.hparams.model_sample_rate,
+                )
+                mel_spec = self.spk_emb_model.mel_spectogram(
+                    audio=audio_resampled
+                )
+                spk_emb = self.spk_emb_model.encode_mel_spectrogram_batch(
+                    mel_spec, batch.sig.lengths
+                ).squeeze(1)
+                emb = {
+                    "spk": spk_emb
+                }
+            else:
+                spk_emb, emb = None, None
+            
             infer_out = self.modules.model.infer(
-                input_tokens=tokens, input_length=tokens_length
+                input_tokens=tokens, input_length=tokens_length, emb=emb
             )
             if self.vocoder_has_details:
                 wav, details = self.modules.vocoder.decode_batch_with_details(
                     infer_out.audio,
+                    spk=spk_emb
                 )
                 length = infer_out.length
             else:
                 result = self.modules.vocoder(
-                    infer_out.audio, infer_out.length,
+                    infer_out.audio, infer_out.length, spk=spk_emb
                 )
                 if torch.is_tensor(result):
                     wav, length = result, infer_out.length
