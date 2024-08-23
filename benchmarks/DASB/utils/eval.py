@@ -977,7 +977,7 @@ class SpkSimWavLM(SpeechEvaluator):
         if sample_rate_ref is not None:
             wavs_ref = torchaudio.functional.resample(
                 wavs_ref,
-                orig_freq=sample_rate,
+                orig_freq=sample_rate_ref,
                 new_freq=self.model_sample_rate
             )
 
