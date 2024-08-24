@@ -65,7 +65,7 @@ vocoder_src: !apply:speechbrain.utils.hparams.choice
         continuous: !ref <vocoder_src_continous>
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
-spk_emb_injection: film
+spk_emb_injection: null
 
 vocoder_available_layers: [1, 3, 7, 12, 18, 23]
 

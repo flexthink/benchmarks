@@ -142,7 +142,7 @@ decoder_mode: autoregressive
 scale_factor: 4
 
 # Embedding Injection
-spk_emb_injection: film
+spk_emb_injection: null
 
 # Beam Search-specific parameters
 min_decode_ratio: 1.0
