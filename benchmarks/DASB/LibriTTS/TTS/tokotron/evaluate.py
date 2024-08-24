@@ -14,6 +14,7 @@ import math
 import sys
 import csv
 import torch
+import torchaudio
 import string
 import re
 from pathlib import Path
@@ -231,8 +232,13 @@ class TokotronEvaluator:
             vocoder_to_device(self.modules.vocoder, self.device)
             if hasattr(self.modules.vocoder, "device"):
                 self.modules.vocoder.device = self.device
-            mel_spec = mel_spec = self.spk_emb_model.mel_spectogram(
-                audio=batch.sig.data
+            audio_resampled = torchaudio.functional.resample(
+                batch.sig.data,
+                self.hparams.sample_rate,
+                self.hparams.model_sample_rate,
+            )
+            mel_spec = self.spk_emb_model.mel_spectogram(
+                audio=audio_resampled
             )
             spk_emb = self.spk_emb_model.encode_mel_spectrogram_batch(
                 mel_spec, batch.sig.lengths
