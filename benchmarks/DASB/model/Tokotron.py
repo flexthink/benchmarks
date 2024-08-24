@@ -3033,7 +3033,7 @@ class NullEmbedding(nn.Module):
         """
         return inputs
 
-    def after(self, inputs, emb):
+    def after(self, inputs, outputs, emb):
         """Injects embeddings into the model outputs
 
         Arguments
