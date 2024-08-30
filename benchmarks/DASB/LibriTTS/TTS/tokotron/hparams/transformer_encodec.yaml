@@ -97,6 +97,9 @@ eos_mode: gate
 decoder_mode: autoregressive
 scale_factor: 4
 
+# Embedding Injection
+spk_emb_injection: null
+
 # Beam Search-specific parameters
 min_decode_ratio: 1.0
 max_decode_ratio: 10.0
@@ -249,6 +252,7 @@ emb:
     kind: "pretrained"
     dim: 192
     vocoder: !ref <vocoder_takes_spk_emb>
+    injection: !ref <spk_emb_injection>
 
 model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
