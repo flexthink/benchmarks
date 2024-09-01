@@ -129,6 +129,10 @@ gate_offset: !apply:benchmarks.DASB.model.Tokotron.distance_diff_loss_ramp
     gamma: !ref <gate_loss_gamma>
     max_weight: !ref <gate_loss_max_weight>
 
+# Guides
+guides_enabled: False
+
+
 silence_padding: !ref <gate_offset>
 use_silence_padding: True
 
