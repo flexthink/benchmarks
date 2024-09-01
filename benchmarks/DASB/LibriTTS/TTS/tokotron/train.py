@@ -582,7 +582,10 @@ def dataio_prepare(hparams, guide_ctx=None):
         return torch.tensor(guide_ctx.asr_model.encode(label))
 
     use_silence_padding = hparams.get("use_silence_padding", True)
-    audio_tokens_per_step = len(as_list(hparams["token_model_layers"]))
+    if "token_model_layers" in hparams:
+        audio_tokens_per_step = len(as_list(hparams["token_model_layers"]))
+    else:
+        audio_tokens_per_step = hparams["token_model_layers"]
     if use_silence_padding:
         silence_token, silence_emb = get_silence_token(
             hparams["token_model"],
