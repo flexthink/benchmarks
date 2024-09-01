@@ -585,7 +585,7 @@ def dataio_prepare(hparams, guide_ctx=None):
     if "token_model_layers" in hparams:
         audio_tokens_per_step = len(as_list(hparams["token_model_layers"]))
     else:
-        audio_tokens_per_step = hparams["token_model_layers"]
+        audio_tokens_per_step = hparams["audio_tokens_per_step"]
     if use_silence_padding:
         silence_token, silence_emb = get_silence_token(
             hparams["token_model"],
