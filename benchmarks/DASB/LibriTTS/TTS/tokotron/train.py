@@ -168,7 +168,7 @@ class TokotronBrain(sb.Brain):
         audio_ssl : torch.Tensor
             SSL features, squished if enabled
         """
-        if self.hparams.select_layers:
+        if self.layer_idx:
             audio_ssl = audio_ssl[:, :, self.layer_idx]
         return audio_ssl
 
