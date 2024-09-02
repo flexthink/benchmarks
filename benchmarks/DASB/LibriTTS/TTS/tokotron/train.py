@@ -144,7 +144,7 @@ class TokotronBrain(sb.Brain):
 
     def _get_selected_layer_idx(self):
         selected_layers = None
-        if self.hparams.select_layers:
+        if hasattr(self.hparams, "select_layers") and self.hparams.select_layers:
             layers = as_list(self.hparams.select_layers, dtype=int)
             model_layers_map = {
                 layer: idx
