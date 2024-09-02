@@ -345,3 +345,6 @@ progress_report: !new:benchmarks.DASB.utils.tts.TTSProgressReport
     logger: !ref <progress_logger>
     sample_rate: !ref <model_sample_rate>
     eos_threshold: !ref <gate_threshold>
+
+spk_sampler: !name:speechbrain.dataio.sampler.ReproducibleRandomSampler
+    seed: !ref <seed>
