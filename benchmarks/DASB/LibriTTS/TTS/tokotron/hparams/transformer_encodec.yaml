@@ -48,6 +48,7 @@ vocoder_type: encodec
 vocoder_src: "charactr/vocos-encodec-24khz"
 vocoder_takes_spk_emb: False
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
+spk_emb_shuffle: True
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
