@@ -449,6 +449,7 @@ def parse_alignments(file_name):
             "phn_start": [],
             "phn_end": [],
             "phn_count": 0,
+            "wrd": [],
             "wrd_start": [],
             "wrd_end": [],
             "wrd_count": 0,
