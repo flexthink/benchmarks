@@ -643,7 +643,7 @@ def prepare_features(
     inline_keys = [key for key in features if key in INLINE_FEATURES]
     feature_extractor.set_output_features(feature_keys, inline_keys=inline_keys)
     with torch.no_grad():
-        feature_extractor.extract(dataset)
+        feature_extractor.extract(dataset, data)
 
 
 def batchify(values):
