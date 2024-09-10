@@ -254,6 +254,7 @@ enc_n_dim: 16
 dec_n_dim: 256
 transformer_dropout: 0.2
 target_dropout: 0.2
+emb_dropout: 0.0
 activation: !name:torch.nn.GELU
 audio_num_tokens: 1000
 audio_dim: 1024
@@ -339,6 +340,7 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     dec_num_layers: !ref <dec_num_layers>
     dropout: !ref <transformer_dropout>
     target_dropout: !ref <target_dropout>
+    emb_dropout: !ref <emb_dropout>
     activation: !ref <activation>
     attention_type: !ref <attention_type>
     vocoder: !ref <vocoder>

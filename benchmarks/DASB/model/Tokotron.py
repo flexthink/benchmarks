@@ -33,6 +33,7 @@ from speechbrain.nnet.pooling import Pooling1d
 from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
+from speechbrain.utils.fetching import fetch
 from speechbrain.inference import EncoderDecoderASR, Pretrained
 from .mega import MegaDecoderLayer, MegaEncoder
 
@@ -175,6 +176,7 @@ class TokotronTransformerDecoder(nn.Module):
         attention_type="regularMHA",
         num_layers=6,
         dropout=0.2,
+        emb_dropout=0.0,
         target_dropout=None,
         audio_emb=None,
         audio_emb_size=128,
@@ -206,6 +208,7 @@ class TokotronTransformerDecoder(nn.Module):
                 decoder_n_dim=n_dim,
                 decoder_ffn_embed_dim=d_ffn,
                 dropout=dropout,
+                emb_dropout=emb_dropout,
                 attention_dropout=dropout,
                 hidden_dropout=dropout,
                 activation_dropout=dropout,
@@ -222,6 +225,7 @@ class TokotronTransformerDecoder(nn.Module):
                 num_layers=num_layers,
                 activation=activation,
                 dropout=dropout,
+                emb_dropout=emb_dropout,
                 emb=emb,
                 layerwise_renorm=layerwise_renorm,
             )
@@ -1147,6 +1151,7 @@ class TokotronTransformerModel(nn.Module):
         dec_num_layers=6,
         dropout=0.2,
         target_dropout=0.2,
+        emb_dropout=0.0,
         activation=nn.LeakyReLU,
         max_audio_length=1000,
         infer_max_audio_length=None,
@@ -1223,6 +1228,7 @@ class TokotronTransformerModel(nn.Module):
             activation=activation,
             dropout=dropout,
             target_dropout=target_dropout,
+            emb_dropout=emb_dropout,
             use_tgt_padding_mask=use_tgt_padding_mask,
             audio_emb=audio_emb,
             audio_emb_size=audio_emb_size,
@@ -1281,6 +1287,7 @@ class TokotronTransformerModel(nn.Module):
                 for key, emb_config in emb.items()
                 if emb_config.get("vocoder")
             ]
+        self.emb_dropout = emb_dropout
 
     def _build_emb_proj(self, emb):
         """Builds the embedding projection
@@ -1521,6 +1528,10 @@ class TokotronTransformerModel(nn.Module):
                 emb_t_norm = nn.functional.layer_norm(emb_t, emb_t.shape)
                 emb_exp = emb_t_norm.unsqueeze(1).expand(
                     batch_size, seq_len, emb_size
+                )
+                emb_exp = nn.functional.dropout(
+                    emb_exp,
+                    self.emb_dropout,
                 )
                 src_norm = nn.functional.layer_norm(src, src.shape)
                 src_with_emb = torch.cat([src_norm, emb_exp], dim=-1)
@@ -2472,62 +2483,6 @@ class TransformerASRGuide(nn.Module):
         return p_seq
     
 
-class DiscreteSpkEmb(Pretrained):
-    """Speaker embeddings based on discrete tokens"""
-
-    @classmethod
-    def from_hparams(
-        cls,
-        source,
-        hparams_file="hyperparams.yaml",
-        savedir=None,
-
-    ):
-        if savedir is None:
-            savedir = f"./pretrained_models/{cls.__name__}-{hashlib.md5(source.encode('UTF-8', errors='replace')).hexdigest()}"
-            hparams_local_path = fetch(
-                filename=hparams_file,
-                source=source,
-                savedir=savedir,
-                overwrite=False,
-                save_filename=None,
-                use_auth_token=use_auth_token,
-                revision=None,
-                huggingface_cache_dir=huggingface_cache_dir,
-            )
-            pymodule_local_path = fetch(
-                filename=pymodule_file,
-                source=source,
-                savedir=savedir,
-                overwrite=False,
-                save_filename=None,
-                use_auth_token=use_auth_token,
-                revision=None,
-                huggingface_cache_dir=huggingface_cache_dir,
-            )
-            sys.path.append(str(pymodule_local_path.parent))
-
-            # Load the modules:
-            with open(hparams_local_path) as fin:
-                hparams = load_hyperpyyaml(fin, overrides, overrides_must_match)
-
-            # Pretraining:
-            pretrainer = hparams["pretrainer"]
-            pretrainer.set_collect_in(savedir)
-            # For distributed setups, have this here:
-            run_on_main(pretrainer.collect_files, kwargs={"default_source": source})
-            # Load on the CPU. Later the params can be moved elsewhere by specifying
-            return 
-
-
-    def encode_batch(self, audio, length=None):
-        embeddings = self.mods.discrete_embedding_layer(audio)
-        att_w = self.mods.attention_mlp(embeddings)
-        feats = torch.matmul(att_w.transpose(2, -1), embeddings).squeeze(-2)
-        embeddings = self.mods.embedding_model(feats, length)
-        return embeddings.squeeze(1)
-
-
 class ShiftedPositionalEncoding(nn.Module):
     """A variation of positional emcodings that can be shifted
     (useful for curriculum learning on partial seauences)
@@ -2602,6 +2557,7 @@ class EmbeddingGuidedMegaDecoder(nn.Module):
         decoder_n_dim=256,
         decoder_ffn_embed_dim=2048,
         dropout=0.2,
+        emb_dropout=0.0,
         attention_dropout=0.2,
         hidden_dropout=0.2,
         activation_dropout=0.2,
@@ -2640,11 +2596,17 @@ class EmbeddingGuidedMegaDecoder(nn.Module):
             ]
         )
         self.emb = emb
-        self.emb_injection = _build_emb_injections(
-            emb, d_model, num_layers
-        )
-        self.emb_norm = _build_emb_norms(emb)
+        if self.emb is not None:
+            self.emb_injection = _build_emb_injections(
+                emb, d_model, num_layers
+            )
+            self.emb_norm = _build_emb_norms(emb)
+        else:
+            self.emb_injection = [None] * num_layers
+            self.emb_norm = None
+
         self.norm = nn.LayerNorm(d_model)
+        self.emb_dropout = emb_dropout
 
     def forward(
         self,
@@ -2662,8 +2624,9 @@ class EmbeddingGuidedMegaDecoder(nn.Module):
         self_attns, cross_attns = [], []
 
         if emb is not None:
-            emb = {key: self.emb_norm[key](emb_item)
-                   for key, emb_item in emb.items()}
+            emb = _apply_emb_norm(
+                emb, self.emb_norm, self.emb_dropout
+            )
 
         for dec_layer, emb_injection in zip(self.layers, self.emb_injection):
             layer_input = output
@@ -2708,6 +2671,8 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         Dimension for value (Optional).
     dropout : float, optional
         Dropout for the decoder (Optional).
+    emb_dropout: float, optional
+        The speaker embedding dropout
     activation : Callable
         The function to apply between layers, default nn.ReLU
     normalize_before : bool
@@ -2738,6 +2703,7 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         kdim=None,
         vdim=None,
         dropout=0.0,
+        emb_dropout=0.0,
         activation=nn.ReLU,
         normalize_before=False,
         causal=False,
@@ -2772,6 +2738,7 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         )
         self.emb_norm = _build_emb_norms(emb)
         self.layerwise_renorm = layerwise_renorm
+        self.emb_dropout = emb_dropout
 
     def forward(
         self,
@@ -2811,8 +2778,9 @@ class EmbeddingGuidedTransformerDecoder(nn.Module):
         self_attns, multihead_attns = [], []
 
         if emb is not None:
-            emb = {key: self.emb_norm[key](emb_item)
-                   for key, emb_item in emb.items()}
+            emb = _apply_emb_norm(
+                emb, self.emb_norm, self.emb_dropout
+            )
 
         for dec_layer, emb_injection in zip(self.layers, self.emb_injection):
             layer_input = output
@@ -2873,9 +2841,16 @@ def _build_emb_injection(emb_config, d_model):
     if emb_injection in EMBEDDING_INJECTIONS:
         emb_injection = EMBEDDING_INJECTIONS[emb_injection](
             emb_size=emb_size,
-            out_size=d_model
+            out_size=d_model,
         )
     return emb_injection
+
+
+def _apply_emb_norm(emb, emb_norm, emb_dropout):
+    if emb is not None:
+        emb = {
+            key: nn.functional.dropout(emb_norm[key](emb_item), emb_dropout)
+            for key, emb_item in emb.items()}
 
 
 def _build_emb_injections(emb, d_model, num_layers):
@@ -2899,6 +2874,7 @@ def _build_emb_norms(emb):
             input_size=emb_config["dim"],
         ) for key, emb_config in emb.items()
     })    
+
 
 class AdditiveEmbedding(nn.Module):
     """A simple embedding scheme where a projection of the embedding is computed
