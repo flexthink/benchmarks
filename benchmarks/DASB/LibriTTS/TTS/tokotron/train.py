@@ -711,6 +711,15 @@ def dataio_prepare(hparams, guide_ctx=None):
             "sorting must be random, ascending or descending"
         )
 
+    # Exclude samples without phonemes
+    if hparams["input"] == "phonemes":
+        for key in datasets:
+            datasets[key] = datasets[key].filtered_sorted(
+                key_test={
+                    "phn": lambda value: value
+                }
+            )
+
     datasets["sample"] = select_sample(hparams, datasets)
     return datasets, silence_padding, resample_fn
 
