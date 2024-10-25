@@ -271,6 +271,12 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
     decoder_mode: !ref <decoder_mode>
     scale_factor: !ref <scale_factor>
     representation_mode: discrete
+    emb: !apply:speechbrain.utils.hparams.choice
+        value: !ref <use_spk_emb>
+        choices: 
+            True: !ref <emb>
+            False: null
+
 
 modules:
     model: !ref <model>
