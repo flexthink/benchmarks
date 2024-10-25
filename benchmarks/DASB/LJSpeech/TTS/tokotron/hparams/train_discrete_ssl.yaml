@@ -58,6 +58,8 @@ vocoder_src: !apply:speechbrain.utils.hparams.choice
         wav2vec2: chaanks/hifigan-wav2vec-l1-3-7-12-18-23-k1000-LibriTTS
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
+spk_emb_injection: null
+
 
 vocoder_available_layers: [1, 3, 7, 12, 18, 23]
 
@@ -245,6 +247,13 @@ attention_type: regularMHA
 vocoder: !apply:speechbrain.inference.vocoders.UnitHIFIGAN.from_hparams
     source: !ref <vocoder_src>
     savedir: !ref <vocoder_model_path>
+
+emb:
+  spk:
+    kind: "pretrained"
+    dim: 192
+    vocoder: True
+    injection: !ref <spk_emb_injection>
 
 
 model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
