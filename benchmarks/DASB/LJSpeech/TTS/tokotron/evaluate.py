@@ -104,8 +104,7 @@ class TokotronEvaluator:
         logger.info("Recovering the checkpoint")
         ckpt = self.hparams.checkpointer.recover_if_possible()
         if not ckpt:
-            pass
-            #raise ValueError("Unable to recover the checkpoint")
+            raise ValueError("Unable to recover the checkpoint")
         self.modules.model.eval()
         if self.hparams.eval_samples is not None:
             dataset = dataset.filtered_sorted(
@@ -155,7 +154,10 @@ class TokotronEvaluator:
                     "uttid",
                     "infer_flops",
                     "steps",
-                    "flops_per_step",
+                    "infer_flops_per_step",
+                    "vocoder_flops",
+                    "total_flops",
+                    "total_flops_per_step",
                 ]
             )
             self.perf_writer.writeheader()
@@ -229,9 +231,63 @@ class TokotronEvaluator:
             else:
                 spk_emb, emb = None, None
 
-            infer_out, perf_sats = self.infer(
+            infer_out, perf_stats = self.infer(
                 tokens=tokens, tokens_length=tokens_length, emb=emb
             )
+            wav, length, details, vocoder_stats = self.vocoder(
+                infer_out=infer_out,
+                spk_emb=spk_emb
+            )
+            perf_stats.update(vocoder_stats)
+            perf_stats["total_flops"] = perf_stats["vocoder_flops"] + perf_stats["infer_flops"]
+            perf_stats["total_flops_per_step"] = perf_stats["total_flops"] / perf_stats["steps"]
+
+            self.save_samples(batch, wav, infer_out.length)
+            self.item_ids.extend(batch.uttid)
+            for evaluator_key, evaluator in self.evaluators.items():
+                result = evaluator.evaluate(
+                    wavs=wav,
+                    length=length,
+                    text=batch.label_norm_eval,
+                    wavs_ref=batch.sig.data,
+                    length_ref=batch.sig.lengths,
+                    sample_rate_ref=self.hparams.sample_rate,
+                    sample_rate=self.hparams.model_sample_rate,
+                )
+                details = undo_batch(result.details)
+                self.write_result(evaluator_key, batch.uttid, details)
+                self.details[evaluator_key].extend(details)
+            self.write_perf_stats(batch.uttid, perf_stats)
+
+    def infer(self, tokens, tokens_length, emb):
+        stats = {}
+        if self.hparams.eval_perf:
+            flop_counter = FlopCounterMode()
+        else:
+            flop_counter = nullcontext()
+
+        with flop_counter:
+            infer_out = self.modules.model.infer(
+                input_tokens=tokens, input_length=tokens_length, emb=emb
+            )
+        if self.hparams.eval_perf:
+            steps = (infer_out.length * infer_out.audio.size(1)).sum().item()
+            total_flops = flop_counter.get_total_flops()
+            stats = {
+                "infer_flops": total_flops,
+                "steps": steps,
+                "infer_flops_per_step": total_flops / steps,
+            }
+        return infer_out, stats
+
+    def vocoder(self, infer_out, spk_emb):
+        stats = {}
+        if self.hparams.eval_perf:
+            flop_counter = FlopCounterMode()
+        else:
+            flop_counter = nullcontext()        
+        
+        with flop_counter:
             if self.vocoder_has_details:
                 wav, details = self.modules.vocoder.decode_batch_with_details(
                     infer_out.audio,
@@ -251,44 +307,13 @@ class TokotronEvaluator:
                 wav = wav.squeeze(1)
             if "attn" in details:
                 self.attention.append(details["attn"])
-
-            self.save_samples(batch, wav, infer_out.length)
-            self.item_ids.extend(batch.uttid)
-            for evaluator_key, evaluator in self.evaluators.items():
-                result = evaluator.evaluate(
-                    wavs=wav,
-                    length=length,
-                    text=batch.label_norm_eval,
-                    wavs_ref=batch.sig.data,
-                    length_ref=batch.sig.lengths,
-                    sample_rate_ref=self.hparams.sample_rate,
-                    sample_rate=self.hparams.model_sample_rate,
-                )
-                details = undo_batch(result.details)
-                self.write_result(evaluator_key, batch.uttid, details)
-                self.details[evaluator_key].extend(details)
-            self.write_perf_stats(batch.uttid, perf_sats)
-
-    def infer(self, tokens, tokens_length, emb):
-        stats = {}
+        
         if self.hparams.eval_perf:
-            flop_counter = FlopCounterMode()
-        else:
-            flop_counter = nullcontext()
-
-        with flop_counter:
-            infer_out = self.modules.model.infer(
-                input_tokens=tokens, input_length=tokens_length, emb=emb
-            )
-        if self.hparams.eval_perf:
-            steps = (infer_out.length * infer_out.audio.size(1)).sum().item()
-            total_flops = flop_counter.get_total_flops()
+            flops = flop_counter.get_total_flops()
             stats = {
-                "infer_flops": total_flops,
-                "steps": steps,
-                "flops_per_step": total_flops / steps,
+                "vocoder_flops": flops
             }
-        return infer_out, stats
+        return wav, length, details, stats
 
     def evaluate_bulk(self):
         for evaluator_key, evaluator in self.bulk_evaluators.items():
