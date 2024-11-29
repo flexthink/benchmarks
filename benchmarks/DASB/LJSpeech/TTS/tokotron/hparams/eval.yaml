@@ -7,6 +7,7 @@ eval_asr_source: !apply:speechbrain.utils.hparams.choice
   choices:
     encoder_decoder: speechbrain/asr-transformer-transformerlm-librispeech
     whisper: openai/whisper-small
+eval_perf: false
 evaluations: utmos,asr
 tmp_folder: null
 utmos_batch_size: 8
