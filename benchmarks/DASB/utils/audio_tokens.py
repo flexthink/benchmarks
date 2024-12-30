@@ -14,6 +14,8 @@ def get_silence_token(
     model,
     sample_length=100000,
     extract_emb=True,
+    model_shape="BLH",
+    unsqueeze=False,
     device=None,
     model_kwargs=None,
 ):
@@ -28,6 +30,13 @@ def get_silence_token(
         The length of the sample
     extract_emb : bool
         Whether to extract embeddings
+    model_shape : str
+        The shape of tokens output by the model
+        BLH: Batch x Length x Heads (Discrete SSL, Encodec)
+        BHL: Batch x Heads x Length (DAC)
+        HBL: Heads x Batch x Length (SpeechTokenizer)
+    unsqueeze: bool
+        Whether to add an extra dimension to the audio (needed for DAC)
     device : str | torch.Device
         The device to use
     model_kwargs : dict
@@ -48,10 +57,24 @@ def get_silence_token(
         model_kwargs = {}
 
     audio = torch.zeros(1, sample_length, device=device)
+    if unsqueeze:
+        audio = audio.unsqueeze(1)
     length = torch.ones(1, device=device)
+    model_training = model.training
+    model.eval()
     result = model(audio, length, **model_kwargs)
-    tokens = result[0]
-    silence_tokens = tokens.squeeze(0).mode(0).values
+    if model_training:
+        model.train()
+    tokens = result if torch.is_tensor(result) else result[0]
+    if model_shape == "HBL":
+        tokens = tokens.permute(1, 2, 0)
+    elif model_shape == "BHL":
+        tokens = tokens.transpose(-1, -2)
+
+    tokens = tokens.squeeze(0)
+    if unsqueeze:
+        tokens = tokens.squeeze(0)
+    silence_tokens = tokens.mode(0).values
     silence_emb = None
     if extract_emb:
         if hasattr(model, "embeddings"):

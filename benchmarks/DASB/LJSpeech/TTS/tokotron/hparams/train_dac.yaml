@@ -17,6 +17,9 @@ g2p_src: flexthink/soundchoice-g2p
 vocoder_type: encodec
 vocoder_src: "charactr/vocos-encodec-24khz"
 
+# Model type
+representation_mode: discrete
+
 # Data files
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared/dac
@@ -34,6 +37,14 @@ progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
+
+tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+
+tokens_loader: !new:utils.tokens.TokensLoader
+   data_path: !ref <tokens_folder>
+
+token_model_kwargs:
+    n_quantizers: !ref <audio_tokens_per_step>
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
@@ -101,17 +112,6 @@ gate_offset: !apply:Tokotron.distance_diff_loss_ramp
 
 silence_padding: !ref <gate_offset>
 
-# Token model (pretrained)
-dac: !new:speechbrain.lobes.models.discrete.dac.DAC
-    sample_rate: !ref <model_sample_rate>
-    model_type: !ref <model_type>
-    model_bitrate: !ref <model_bitrate>
-    load_pretrained: True
-
-# Token model (pretrained)
-token_model: !new:Tokotron.DACFeatureExtractor
-    dac: !ref <dac>
-    n_quantizers: !ref <audio_tokens_per_step>
 
 # Dataloader options
 train_dataloader_opts:
@@ -143,13 +143,6 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
-extract_features_opts:
-    dataloader_opts:
-        batch_size: !ref <batch_size>
-    token_model: !ref <token_model>
-    sample_rate: !ref <sample_rate>
-    model_sample_rate: !ref <model_sample_rate>
-
 
 ####################### Model parameters ###########################
 # Transformer
@@ -174,6 +167,8 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
         phonemes: !ref <phn_num_tokens>
 audio_tokens_per_step: 2
 bandwidth: 1.5
+model_shape: BHL
+model_needs_channel: True
 attention_type: regularMHA
 
 ############################## models ################################
@@ -198,9 +193,17 @@ model: !new:Tokotron.TokotronTransformerModel  # yamllint disable-line rule:line
     max_audio_length: !ref <max_audio_length>
     infer_max_audio_length: !ref <infer_max_audio_length>
 
+tokenizer: !new:utils.tokenizer_interface.DACTokenizer
+  model_type: !ref <model_type>
+  model_bitrate: !ref <model_bitrate>
+  n_codebooks: !ref <audio_tokens_per_step>
+  load_pretrained: True
+  tag: latest
+  
+
 modules:
     model: !ref <model>
-    dac: !ref <dac>
+    tokenizer: !ref <tokenizer>
 
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
@@ -235,3 +238,4 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
+

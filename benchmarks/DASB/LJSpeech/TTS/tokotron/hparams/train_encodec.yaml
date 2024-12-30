@@ -17,6 +17,9 @@ g2p_src: flexthink/soundchoice-g2p
 vocoder_type: encodec
 vocoder_src: "charactr/vocos-encodec-24khz"
 
+# Model type
+representation_mode: discrete
+
 # Data files
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared/encodec
@@ -34,6 +37,11 @@ progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
+
+tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+
+tokens_loader: !new:utils.tokens.TokensLoader
+   data_path: !ref <tokens_folder>
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
@@ -96,13 +104,6 @@ gate_offset: !apply:Tokotron.distance_diff_loss_ramp
 
 silence_padding: !ref <gate_offset>
 
-# Token model (pretrained)
-token_model: !new:speechbrain.lobes.models.huggingface_transformers.Encodec
-    source: !ref <token_model_src>
-    save_path: !ref <pretrained_model_save_folder>
-    bandwidth: !ref <bandwidth>
-    flat_embeddings: True
-
 # Dataloader options
 train_dataloader_opts:
     batch_size: !ref <batch_size>
@@ -132,13 +133,6 @@ sample_dataloader_opts:
     collate_fn: !name:speechbrain.dataio.batch.PaddedBatch
         padding_kwargs:
             value: !ref <pad_index>
-
-extract_features_opts:
-    dataloader_opts:
-        batch_size: !ref <batch_size>
-    token_model: !ref <token_model>
-    sample_rate: !ref <sample_rate>
-    model_sample_rate: !ref <model_sample_rate>
 
 
 ####################### Model parameters ###########################
@@ -190,7 +184,6 @@ model: !new:Tokotron.TokotronTransformerModel  # yamllint disable-line rule:line
 
 modules:
     model: !ref <model>
-    token_model: !ref <token_model>
 
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
@@ -225,3 +218,12 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
+
+tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
+   source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
+   save_path: !ref <save_folder>
+   sample_rate: !ref <sample_rate>
+   bandwidth: !ref <bandwidth>
+   flat_embeddings: False
+   freeze: True
+   renorm_embeddings: False

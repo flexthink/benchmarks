@@ -257,6 +257,7 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
     audio_token_shift: !ref <audio_token_shift>
     decoder_mode: !ref <decoder_mode>
     scale_factor: !ref <scale_factor>
+    audio_dim: !ref <audio_dim>
     representation_mode: continuous
 
 
@@ -264,6 +265,7 @@ modules:
     model: !ref <model>
     vocoder: !ref <vocoder>
     compute_cost: !ref <compute_cost>
+    ssl_model: !ref <ssl_model>
 
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
@@ -306,3 +308,10 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
+
+tokenizer: !new:utils.tokenizer_interface.DiscreteSSLTokenizer
+  save_path: !ref <kmeans_cache_dir>
+  ssl_model: !ref <ssl_model>
+  vocoder_repo_id: !ref <vocoder_repo_id>
+  kmeans_dataset: !ref <kmeans_dataset>
+  num_clusters: !ref <vocab_size>

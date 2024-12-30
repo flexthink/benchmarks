@@ -34,7 +34,7 @@ class TokotronDiscreteSSLBrain(TokotronBrain):
                 str(layer) for layer in (layers_set - available_layers_set)
             )
             raise ValueError(f"Layers {unavailable_layers} are not supported")
-        self.num_units = self.hparams.audio_num_tokens
+        self.num_units = self.hparams.vocab_size
         _, layers_idx = torch.where(
             torch.tensor(
                 self.hparams.vocoder_available_layers, device=self.device

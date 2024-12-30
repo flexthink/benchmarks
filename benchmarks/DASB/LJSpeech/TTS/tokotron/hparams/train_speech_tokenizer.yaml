@@ -17,6 +17,9 @@ g2p_src: flexthink/soundchoice-g2p
 vocoder_type: encodec
 vocoder_src: "charactr/vocos-encodec-24khz"
 
+# Model type
+representation_mode: discrete
+
 # Data files
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared/st
@@ -34,6 +37,12 @@ progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
+
+tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+
+tokens_loader: !new:utils.tokens.TokensLoader
+   data_path: !ref <tokens_folder>
+
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
@@ -167,6 +176,7 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
         phonemes: !ref <phn_num_tokens>
 audio_tokens_per_step: 2
 bandwidth: 1.5
+model_shape: HBL
 attention_type: regularMHA
 
 ############################## models ################################
@@ -228,3 +238,7 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
+
+tokenizer: !new:utils.tokenizer_interface.SpeechTokenizer
+  source: fnlp/SpeechTokenizer  # Only the 24kHz version supports mono audio
+  save_path: !ref <save_folder>

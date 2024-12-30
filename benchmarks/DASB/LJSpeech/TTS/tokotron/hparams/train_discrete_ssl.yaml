@@ -11,6 +11,7 @@ __set_seed: !apply:torch.manual_seed [!ref <seed>]
 
 # Model Type
 ssl_model_type: wavlm
+representation_mode: discrete
 
 output_folder: !ref results/tokotron/<experiment_name>/<ssl_model_type>/<seed>
 save_folder: !ref <output_folder>/save
@@ -37,6 +38,11 @@ progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
 
+tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+
+tokens_loader: !new:utils.tokens.TokensLoader
+   data_path: !ref <tokens_folder>
+
 freeze_token_model: True
 token_model_src: !apply:speechbrain.utils.hparams.choice
     value: !ref <ssl_model_type>
@@ -47,7 +53,9 @@ token_model_src: !apply:speechbrain.utils.hparams.choice
 
 g2p_src: speechbrain/soundchoice-g2p
 token_model_kmeans_src: poonehmousavi/SSL_Quantization
-token_model_kmeans_dataset: LibriSpeech-100-360-500
+kmeans_cache_dir: !ref <save_folder>/kmeans_checkpoint
+kmeans_dataset: LibriSpeech
+vocoder_repo_id: speechbrain/hifigan-wavlm-k1000-LibriTTS
 ssl_model_layers: [1, 3, 7, 12, 18, 23]
 token_model_layers: !ref <ssl_model_layers>
 token_offset: 1
@@ -161,14 +169,6 @@ ssl_model: !apply:speechbrain.utils.hparams.choice
             output_all_hiddens: True
 
 
-token_model: !new:speechbrain.lobes.models.huggingface_transformers.discrete_ssl.DiscreteSSL
-    ssl_model: !ref <ssl_model>
-    kmeans_repo_id: !ref <token_model_kmeans_src>
-    kmeans_dataset: !ref <token_model_kmeans_dataset>
-    num_clusters: !ref <audio_num_tokens>
-    save_path: !ref <pretrained_model_save_folder>
-    layers_num: !ref <token_model_layers>
-
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
     savedir: !ref <pretrained_model_save_folder>/ecapa
@@ -206,18 +206,6 @@ sample_dataloader_opts:
 token_model_kwargs:
     SSL_layers: !ref <token_model_layers>
 
-extract_features_opts:
-    dataloader_opts:
-        batch_size: !ref <batch_size>
-    token_model: !ref <token_model>
-    token_model_kwargs: !ref <token_model_kwargs>
-    ssl_model: !ref <ssl_model>
-    ssl_model_layers: !ref <ssl_model_layers>
-    token_model_layers: !ref <token_model_layers>
-    sample_rate: !ref <sample_rate>
-    model_sample_rate: !ref <model_sample_rate>
-    spk_emb_model: !ref <spk_emb_model>
-
 
 ####################### Model parameters ###########################
 # Transformer
@@ -229,7 +217,7 @@ d_ffn: 2048
 transformer_dropout: 0.2
 target_dropout: 0.2
 activation: !name:torch.nn.GELU
-audio_num_tokens: 1000
+vocab_size: 1000
 audio_emb_size: 1024
 audio_emb_freeze: False
 audio_emb_pretrained: False
@@ -254,7 +242,7 @@ vocoder: !apply:speechbrain.inference.vocoders.UnitHIFIGAN.from_hparams
 
 model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
-    audio_num_tokens: !ref <audio_num_tokens>
+    audio_num_tokens: !ref <vocab_size>
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     d_model: !ref <d_model>
     d_ffn: !ref <d_ffn>
@@ -281,6 +269,7 @@ modules:
     model: !ref <model>
     vocoder: !ref <vocoder>
     compute_cost: !ref <compute_cost>
+    ssl_model: !ref <ssl_model>
 
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
@@ -323,3 +312,10 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
+
+tokenizer: !new:utils.tokenizer_interface.DiscreteSSLTokenizer
+  save_path: !ref <kmeans_cache_dir>
+  ssl_model: !ref <ssl_model>
+  vocoder_repo_id: !ref <vocoder_repo_id>
+  kmeans_dataset: !ref <kmeans_dataset>
+  num_clusters: !ref <vocab_size>
