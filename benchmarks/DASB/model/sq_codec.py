@@ -1323,7 +1323,11 @@ def ternary_matrix_to_decimal(matrix):
         A 2D numpy array of shape (B, N), where each value represents the decimal
         equivalent of the corresponding ternary number in the input matrix.
     """
-    B, D, N = (
+    (
+        B,
+        D,
+        N,
+    ) = (
         matrix.shape
     )  # B is the batch size, D is the number of digits, N is the number of ternary numbers
     powers_of_three = 3 ** np.arange(D)  # [3^0, 3^1, ..., 3^(D-1)]
