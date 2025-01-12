@@ -22,10 +22,8 @@ import re
 import string
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
-from speechbrain.dataio.dataset import FilteredSortedDynamicItemDataset
 from speechbrain.utils.distributed import run_on_main
-from preparation import add_prepared_features
-from audio_tokens import (
+from Tokotron import (
     get_silence_token,
     use_silence_padding,
     feature_pad_to,
@@ -683,6 +681,14 @@ RE_PUNCTUATION = re.compile(
 
 
 def run_experiment(brain_cls):
+    """Starts the experiement
+
+    Arguments
+    ---------
+    brain_cls : type
+        The brain class to instantiate
+    """
+
     # Reading command line arguments
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
 
@@ -789,7 +795,6 @@ def run_experiment(brain_cls):
     # Load best checkpoint for evaluation
     tts_brain.evaluate(
         test_set=datasets["test"],
-        min_key="loss",
         test_loader_kwargs=test_dataloader_opts,
     )
 

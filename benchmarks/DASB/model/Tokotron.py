@@ -20,6 +20,8 @@ from speechbrain.lobes.models.transformer.Transformer import (
     PositionalEncoding as TransformerPositionalEncoding,
     get_lookahead_mask,
 )
+from speechbrain.dataio.batch import PaddedBatch
+from speechbrain.utils.data_utils import batch_pad_right
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.embedding import Embedding
 from speechbrain.nnet.linear import Linear
@@ -590,216 +592,6 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
             alignments=step_out.alignments,
             p_eos=step_out.gate_out.sigmoid(),
         )
-
-
-class TokotronSearchWrapper(nn.Module):
-    """A wrapper class to facilitate seach-based inference. It takes care of re-interpreting
-    a multi-headed sequence as multiple samples, for compatibility, and for the retention
-    of attention tensors
-
-    Arguments
-    ---------
-    decoder : TokotronTransformerDecoder
-        the Tokotron transformer decoder
-    """
-
-    def __init__(self, decoder):
-        super().__init__()
-        self.tokens_per_step = decoder.tokens_per_step
-        self.decoder = decoder
-
-    def decode(self, memory, enc_states, enc_lens):
-        """Wraps the decode operation, will all the necessary
-        reshaping
-
-        Arguments
-        ---------
-        memory : torch.Tensor
-            Characters predicted so far
-        enc_states : torch.Tensor
-            Encoder states
-        enc_lens : torch.Tensor
-            Encoder state lengths
-        """
-        batch_size = enc_states.size(0) // self.tokens_per_step
-        _, mem_len = memory.shape
-        memory = memory.reshape(
-            self.tokens_per_step, batch_size, mem_len
-        ).permute(1, 2, 0)
-        dec_out, dec_self_attn, dec_attn = self.decoder.decode(
-            enc_out=enc_states[:batch_size],
-            src_length=enc_lens[:batch_size],
-            tgt=memory,
-        )
-        self.dec_self_attn = dec_self_attn
-        self.dec_attn = dec_attn
-        return dec_out, dec_attn
-
-
-class TokotronTransformerBeamSearcher(S2STransformerBeamSearcher):
-    """A slight modification of S2STransformerBeamSearcher that uses an
-    explicit number of tokens instead of trying to infer it from the
-    weights of the linear layer. This is needed because Tokotron is
-    multi-header and the final output layer outputs multiple output states
-
-    Arguments
-    ---------
-    num_tokens : int
-        The number of audio tokens available
-    """
-
-    def __init__(self, num_tokens, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.num_tokens = num_tokens
-
-    def set_n_out(self):
-        """Set the number of output tokens."""
-        return self.num_tokens
-
-
-class SearchLinearWrapper(nn.Module):
-    """A wrapper for the final linear layer of the Transformer. The goal is to
-    make it compatible with the SpeechBrain Beam Search implementation, which is
-    single-headed, by expanding multiple heads along the batch dimensions.
-
-    Arguments
-    ---------
-    lin : torch.Tensor
-        A linear layer with an output feature dimensions of
-        (tokens_per_step x num_tokens)
-    tokens_per_step : int
-        the numer of tokens the model outputs for each
-        time step
-    """
-
-    def __init__(self, lin, tokens_per_step):
-        super().__init__()
-        self.lin = lin
-        self.tokens_per_step = tokens_per_step
-
-    def forward(self, x):
-        """Performs a forward pass with all the required reshape operations
-
-        Arguments
-        ---------
-        x : torch.Tensor
-            The decoder output
-
-        Returns
-        -------
-        result : torch.Tensor
-            The layer output, reshaped along the batch dimension
-        """
-        x = self.lin(x)
-        batch_size, max_len, out_dim = x.shape
-        num_tokens = x.size(-1) // self.tokens_per_step
-        x = (
-            # batch x tokens x length
-            x.transpose(2, 1)
-            # batch x heads x tokens x length
-            .view(batch_size, self.tokens_per_step, num_tokens, max_len)
-            # heads x batch x tokens x length
-            .transpose(0, 1)
-            # heads * batch x tokens x length
-            .reshape(self.tokens_per_step * batch_size, num_tokens, max_len)
-            # heads * batch x length x tokens
-            .transpose(1, 2)
-        )
-        return x
-
-
-class TokotronSearchInference(nn.Module):
-    """A beam search-based inference implementation
-
-    All keyword arguments will be passed on to the underlying
-    beam search
-    """
-
-    def __init__(self, audio_token_shift=1, **kwargs):
-        super().__init__()
-        self.search_kwargs = kwargs
-        self.audio_token_shift = audio_token_shift
-        self.decoder, self.search, self.tokens_per_step = None, None, None
-
-    def bind(self, model=None):
-        """Binds this inference implementation to a model
-
-        Arguments
-        ---------
-        model : TokotronTransformerModel
-            The transformer model
-        """
-        decoder = model.decoder
-        self.tokens_per_step = decoder.tokens_per_step
-        self.decoder = TokotronSearchWrapper(decoder)
-        self.search = TokotronTransformerBeamSearcher(
-            modules=[
-                self.decoder,
-                SearchLinearWrapper(decoder.out_proj, self.tokens_per_step),
-            ],
-            num_tokens=decoder.num_tokens + self.audio_token_shift,
-            **self.search_kwargs,
-        )
-
-    def decode(self, enc_out, length):
-        """"Decodes the encoder representation using Beam Search
-
-        Arguments
-        ---------
-        enc_out : torch.Tensor
-            Encoder output
-        length : torch.Tensor
-            Encoder output lengths
-
-        Returns
-        -------
-        output : TokotronDecoderInfernceOutput
-            The inference output
-        """
-        with torch.no_grad():
-            device = enc_out.device
-            # The search does not support multiple heads. "Trick" it by expanding encoded
-            # representations along the batch dimension so that the beam searcher
-            # treats it as if they were separate, independent samples.
-            batch_size, max_len, enc_dim = enc_out.shape
-            enc_out_search = (
-                enc_out.unsqueeze(0)
-                .expand(self.tokens_per_step, batch_size, max_len, enc_dim)
-                .reshape(self.tokens_per_step * batch_size, max_len, enc_dim)
-            )
-            length_search = (
-                length.unsqueeze(0)
-                .expand(self.tokens_per_step, batch_size)
-                .reshape(self.tokens_per_step * batch_size)
-            )
-            hyps, audio_length, scores, log_probs = self.search(
-                enc_out_search, length_search
-            )
-            tokens_batch = PaddedBatch(
-                [
-                    {"hyps": torch.tensor(item, device=enc_out.device)}
-                    for item in hyps
-                ]
-            ).to(device)
-
-            audio_tokens, length = tokens_batch.hyps
-            _, audio_max_len = audio_tokens.shape
-            audio_tokens = audio_tokens.reshape(
-                self.tokens_per_step, batch_size, audio_max_len
-            ).permute(1, 2, 0)
-            length = (
-                length.reshape(self.tokens_per_step, batch_size).min(dim=0)
-            ).values
-            audio_tokens = audio_tokens - self.audio_token_shift
-
-            return TokotronDecoderInfernceOutput(
-                audio_tokens=audio_tokens,
-                length=length,
-                dec_self_attn=self.decoder.dec_self_attn,
-                dec_attn=self.decoder.dec_attn,
-                alignments=get_alignments(self.decoder.dec_attn),
-                p_eos=None,
-            )
 
 
 class TokotronTransformerModel(nn.Module):
@@ -2263,3 +2055,212 @@ class SpeechTokenizerFeatureExtractor(nn.Module):
         """
         codes = codes.permute(2, 0, 1)
         return self.speech_tokenizer.decode(codes)
+
+
+def get_silence_token(
+    model,
+    sample_length=100000,
+    extract_emb=True,
+    model_shape="BLH",
+    unsqueeze=False,
+    device=None,
+    model_kwargs=None,
+):
+    """Attempts to find out the silence tokens for a given model,
+    if applicable
+
+    Arguments
+    ---------
+    model : nn.Module
+        A discrete token model, taking (wav, lengths) as arguments
+    sample_length : int
+        The length of the sample
+    extract_emb : bool
+        Whether to extract embeddings
+    model_shape : str
+        The shape of tokens output by the model
+        BLH: Batch x Length x Heads (Discrete SSL, Encodec)
+        BHL: Batch x Heads x Length (DAC)
+        HBL: Heads x Batch x Length (SpeechTokenizer)
+    unsqueeze: bool
+        Whether to add an extra dimension to the audio (needed for DAC)
+    device : str | torch.Device
+        The device to use
+    model_kwargs : dict
+        Additional arguments to pass to the model
+
+    Returns
+    -------
+    silence_tokens : torch.Tensor
+        The token(s) corresponding to silence
+
+    silece_emb : torch.Tensor
+        The embedding(s) corresponding to silence
+
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    audio = torch.zeros(1, sample_length, device=device)
+    if unsqueeze:
+        audio = audio.unsqueeze(1)
+    length = torch.ones(1, device=device)
+    model_training = model.training
+    model.eval()
+    if hasattr(model, "encode"):
+        result = model.encode(audio, length, **model_kwargs)
+    else:
+        result = model(audio, length, **model_kwargs)
+    if model_training:
+        model.train()
+    tokens = result if torch.is_tensor(result) else result[0]
+    if model_shape == "HBL":
+        tokens = tokens.permute(1, 2, 0)
+    elif model_shape == "BHL":
+        tokens = tokens.transpose(-1, -2)
+
+    tokens = tokens.squeeze(0)
+    if unsqueeze:
+        tokens = tokens.squeeze(0)
+    silence_tokens = tokens.mode(0).values
+    silence_emb = None
+    if extract_emb:
+        if hasattr(model, "embeddings"):
+            silence_emb = model.embeddings(
+                silence_tokens[None, None, :]
+            ).squeeze()
+        else:
+            heads = tokens.shape[-1]
+            embs = result[1]
+            mode_idx = [
+                (tokens[:, head] == silence_tokens[head]).nonzero()[0].item()
+                for head in range(heads)
+            ]
+            silence_emb = torch.stack(
+                [embs[0, idx, head] for head, idx in enumerate(mode_idx)]
+            )
+    return silence_tokens, silence_emb
+
+
+def feature_pad_to(tensor, length, padding=None):
+    """Pads feature dimensions to the specified length with the specified padding,
+    assuming a (Batch x Length x Features..) tensor
+
+    Arguments
+    ---------
+    tensor : torch.Tensor
+        The tensor to be padded
+
+    length : int
+        The length to which the tensor will be padded
+
+    padding : torch.Tensor, optional
+        The padding tensor - if omitted, zero padding
+        will be used
+
+    Returns
+    -------
+    result : torch.Tensor
+        The padded tensor
+    """
+    if padding is None:
+        padding = torch.zeros(tensor.shape[1:])
+    padding = padding[None, ...].expand(
+        (length - tensor.size(0),) + tensor.shape[1:]
+    )
+    return torch.cat([tensor, padding], dim=0)
+
+
+def batch_feature_pad(tensors, padding=None):
+    """Similar to batch_pad_right but pads with the specified padding, whcih
+    can be a vector or a tensor
+
+    Arguments
+    ---------
+    tensors : list
+        The list of tensors to be padded
+    padding : torch.Tensor
+        The padding tensor
+
+    Returns
+    -------
+    result : torch.Tensor
+        the padded tensor
+    """
+    lengths_abs = torch.tensor(
+        [len(item) for item in tensors], device=tensors[0].device
+    )
+    max_length = lengths_abs.max()
+    data = torch.stack(
+        [feature_pad_to(item, max_length, padding) for item in tensors]
+    )
+    lengths = lengths_abs / max_length
+    return data, lengths
+
+
+def token_collate_fn(examples, silence_token, token_keys):
+    """A customized collation function for audio tokens where
+    the specified silence token will be used as padding - instead of
+    zeros
+
+    Arguments
+    ---------
+    examples : list
+        A list of examples
+
+    silence_token : torch.Tensor
+        The token(s) representing silence
+
+    token_keys : list
+        The list of keys to which special padding will be applied
+
+    Returns
+    -------
+    result : speechbrain.dataio.batch.PaddedBatch
+        A padded batch
+    """
+    token_tensor_ids = {id(examples[0][key]) for key in token_keys}
+    return PaddedBatch(
+        examples,
+        padding_func=_silence_padding,
+        padding_kwargs={
+            "silence_token": silence_token,
+            "token_tensor_ids": token_tensor_ids,
+        },
+    )
+
+
+def _silence_padding(values, silence_token, token_tensor_ids):
+    return (
+        batch_feature_pad(values, silence_token)
+        if id(values[0]) in token_tensor_ids
+        else batch_pad_right(values)
+    )
+
+
+def use_silence_padding(dataloader_opts, silence_token, token_keys):
+    """Overrides the collation function to add silence padding to
+    audio token features
+
+    Arguments
+    ---------
+    dataloder_opts : dict
+        Dataloader options
+    silence_token : torch.Tensor
+        The tensor to be used as silence padding
+    token_keys : torch.Tensor
+        The keys to apply silence padding to
+
+    Returns
+    -------
+    dataloader_opts : dict
+        Updated data loader options
+    """
+    return {
+        **dataloader_opts,
+        "collate_fn": partial(
+            token_collate_fn, silence_token=silence_token, token_keys=token_keys
+        ),
+    }
