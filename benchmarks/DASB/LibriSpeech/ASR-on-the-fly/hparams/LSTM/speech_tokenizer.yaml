@@ -126,7 +126,7 @@ prune_history: False
 
 ############################## models ################################
 # EnCodec model (see https://huggingface.co/docs/transformers/v4.31.0/en/model_doc/encodec)
-tokenizer: !new:utils.tokenizer_interface.SpeechTokenizer
+tokenizer: !new:utils.tokenizer_interface.SpeechTokenizerWrapper
    source: fnlp/SpeechTokenizer  # Only the 24kHz version supports mono audio
    save_path: !ref <save_folder>
 
