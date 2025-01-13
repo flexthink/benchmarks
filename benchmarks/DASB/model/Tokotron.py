@@ -12,6 +12,7 @@ Authors
 
 import math
 import torch
+import inspect
 from torch import nn
 from torch.nn import functional as F
 from speechbrain.lobes.models.transformer.Transformer import (
@@ -2110,7 +2111,11 @@ def get_silence_token(
     model_training = model.training
     model.eval()
     if hasattr(model, "encode"):
-        result = model.encode(audio, length, **model_kwargs)
+        spec = inspect.getfullargspec(model.encode)
+        if "length" in spec.args:
+            result = model.encode(audio, length, **model_kwargs)
+        else:
+            result = model.encode(audio, **model_kwargs)
     else:
         result = model(audio, length, **model_kwargs)
     if model_training:

@@ -36,7 +36,7 @@ class TokotronEncodecBrain(TokotronBrain):
         -------
         wav : torch.Tensor
         """
-        wav = self.modules.token_model.decode(audio)
+        wav = self.modules.tokenizer.decode(audio)
         wav = wav.squeeze(1)
         clean_padding_(wav, length)
         return wav

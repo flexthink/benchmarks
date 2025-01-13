@@ -40,6 +40,11 @@ progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
 
+tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+
+tokens_loader: !new:utils.tokens.TokensLoader
+   data_path: !ref <tokens_folder>
+
 freeze_token_model: True
 token_model_src: "facebook/encodec_24khz"
 g2p_src: flexthink/soundchoice-g2p
@@ -125,7 +130,7 @@ token_list_file: !apply:speechbrain.utils.hparams.choice
         phonemes: !ref <token_list_file_phn>
 
 # Gate offset
-gate_offset: !apply:benchmarks.DASB.model.Tokotron.distance_diff_loss_ramp
+gate_offset: !apply:Tokotron.distance_diff_loss_ramp
     beta: !ref <gate_loss_beta>
     gamma: !ref <gate_loss_gamma>
     max_weight: !ref <gate_loss_max_weight>
@@ -136,14 +141,6 @@ guides_enabled: False
 
 silence_padding: !ref <gate_offset>
 use_silence_padding: True
-
-
-# Token model (pretrained)
-token_model: !new:speechbrain.lobes.models.huggingface_transformers.Encodec
-    source: !ref <token_model_src>
-    save_path: !ref <pretrained_model_save_folder>
-    bandwidth: !ref <bandwidth>
-    flat_embeddings: True
 
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
@@ -180,15 +177,6 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
-extract_features_opts:
-    dataloader_opts:
-        batch_size: !ref <extract_features_batch_size>
-        num_workers: !ref <num_workers>
-    token_model: !ref <token_model>
-    sample_rate: !ref <sample_rate>
-    model_sample_rate: !ref <model_sample_rate>
-    spk_emb_model: !ref <spk_emb_model>
-
 
 ####################### Model parameters ###########################
 # Transformer
@@ -197,11 +185,6 @@ nhead: 4
 enc_num_layers: 6
 dec_num_layers: 12
 d_ffn: 2048
-z_dim: 128
-hidden_dim: 2048
-enc_n_dim: 16
-dec_n_dim: 256
-decoder_chunk_size: -1
 transformer_dropout: 0.2
 target_dropout: 0.2
 activation: !name:torch.nn.GELU
@@ -221,38 +204,6 @@ bandwidth: 1.5
 attention_type: regularMHA
 
 ############################## models ################################
-
-vocoder: !apply:speechbrain.utils.hparams.choice
-    value: !ref <vocoder_type>
-    choices:
-        encodec: !new:benchmarks.DASB.model.custom_model.EncodecVocoder
-            encodec: !ref <token_model>
-        vocos: !new:speechbrain.lobes.models.huggingface_transformers.vocos.Vocos
-            source: !ref <vocoder_src>
-            save_path: !ref <pretrained_model_save_folder>
-
-
-inference_search: !new:benchmarks.DASB.model.Tokotron.TokotronSearchInference
-    bos_index: !ref <bos_index>
-    eos_index: !ref <eos_index>
-    min_decode_ratio: !ref <min_decode_ratio>
-    max_decode_ratio: !ref <max_decode_ratio>
-    beam_size: !ref <beam_size>
-    using_eos_threshold: False
-    length_normalization: True
-    audio_token_shift: !ref <audio_token_shift>
-
-inference_forward: !new:benchmarks.DASB.model.Tokotron.TokotronForwardInference
-    scale_factor: !ref <scale_factor>
-    gate_threshold: !ref <gate_threshold>
-    eos_mode: !ref <eos_mode>
-
-inference: !apply:speechbrain.utils.hparams.choice
-    value: !ref <inference_mode>
-    choices:
-        search: !ref <inference_search>
-        forward: !ref <inference_forward>
-
 emb:
   spk:
     kind: "pretrained"
@@ -260,17 +211,12 @@ emb:
     vocoder: !ref <vocoder_takes_spk_emb>
     injection: !ref <spk_emb_injection>
 
-model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
+model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
     audio_num_tokens: !ref <audio_num_tokens>
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     d_model: !ref <d_model>
     d_ffn: !ref <d_ffn>
-    z_dim: !ref <z_dim>
-    hidden_dim: !ref <hidden_dim>
-    enc_n_dim: !ref <enc_n_dim>
-    dec_n_dim: !ref <dec_n_dim>
-    decoder_chunk_size: !ref <decoder_chunk_size>
     nhead: !ref <nhead>
     enc_num_layers: !ref <enc_num_layers>
     dec_num_layers: !ref <dec_num_layers>
@@ -278,13 +224,11 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     target_dropout: !ref <target_dropout>
     activation: !ref <activation>
     attention_type: !ref <attention_type>
-    vocoder: !ref <vocoder>
     gate_threshold: !ref <gate_threshold>
     gate_offset: !ref <gate_offset>
     audio_emb_size: !ref <audio_emb_size>
     audio_emb_freeze: !ref <audio_emb_freeze>
     max_audio_length: !ref <max_audio_length>
-    inference: !ref <inference>
     eos_mode: !ref <eos_mode>
     infer_max_audio_length: !ref <infer_max_audio_length>
     audio_token_shift: !ref <audio_token_shift>
@@ -292,16 +236,27 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     scale_factor: !ref <scale_factor>
     emb: !ref <emb>
 
+
+tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
+   source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
+   save_path: !ref <save_folder>
+   sample_rate: !ref <sample_rate>
+   bandwidth: !ref <bandwidth>
+   flat_embeddings: False
+   freeze: True
+   renorm_embeddings: False
+
+
 modules:
     model: !ref <model>
-    vocoder: !ref <vocoder>
     compute_cost: !ref <compute_cost>
+    tokenizer: !ref <tokenizer>
 
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
     lr: !ref <lr>
 
-compute_cost: !new:benchmarks.DASB.model.Tokotron.TokotronLoss
+compute_cost: !new:Tokotron.TokotronLoss
     guided_attention_weight: !ref <guided_attention_weight>
     guided_attention_sigma: !ref <guided_attention_sigma>
     gate_weight: !ref <gate_loss_weight>
@@ -327,26 +282,11 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         lr_scheduler: !ref <lr_annealing>
         counter: !ref <epoch_counter>
 
-freezer: !new:benchmarks.DASB.utils.preparation.Freezer
-    save_path: !ref <prepare_save_folder>
-    archive_path: !ref <prepare_archive_path>
-
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
-
-progress_logger: !new:benchmarks.DASB.utils.train_logger.ArchiveTrainLogger
-    current_path: !ref <progress_current>
-    archive_path: !ref <progress_archive>
-    meta_path: !ref <progress_meta>
-    epoch_counter: !ref <epoch_counter>
-
-progress_report: !new:benchmarks.DASB.utils.tts.TTSProgressReport
-    logger: !ref <progress_logger>
-    sample_rate: !ref <model_sample_rate>
-    eos_threshold: !ref <gate_threshold>
 
 spk_sampler: !name:speechbrain.dataio.sampler.ReproducibleRandomSampler
     seed: !ref <seed>

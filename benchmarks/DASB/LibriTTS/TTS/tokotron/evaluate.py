@@ -62,17 +62,7 @@ class TokotronEvaluator:
         else:
             self.evaluators = {}
 
-        bulk_evaluators = getattr(self.hparams, "bulk_evaluators", {})
-        if bulk_evaluators:
-            self.bulk_evaluators = {
-                key: evaluator_f()
-                for key, evaluator_f in bulk_evaluators.items()
-                if key in self.enabled_evaluators
-            }
-        else:
-            self.bulk_evaluators = {}
-
-        if not self.evaluators and not self.bulk_evaluators:
+        if not self.evaluators:
             logger.warning("No evaluators were defined - this run will produce samples only")
 
         self.attention = []
@@ -101,9 +91,7 @@ class TokotronEvaluator:
         self.create_reports()
         self.modules.model.show_inference_progress = False
         self.item_ids = []
-        details_keys = list(self.evaluators.keys()) + list(
-            self.bulk_evaluators.keys()
-        )
+        details_keys = list(self.evaluators.keys()) 
         self.details = {evaluator_key: [] for evaluator_key in details_keys}
         self.sample_text = []
         self.sample_file_names = []
@@ -157,7 +145,7 @@ class TokotronEvaluator:
         self.create_reports()
         self.modules.model.show_inference_progress = False
         self.item_ids = []
-        details_keys = list(self.evaluators.keys()) + list(self.bulk_evaluators.keys())
+        details_keys = list(self.evaluators.keys())
         self.details = {
             evaluator_key: []
             for evaluator_key in details_keys
@@ -170,7 +158,6 @@ class TokotronEvaluator:
         batch_count = math.ceil(len(dataset) / self.hparams.batch_size)
         for batch in tqdm(loader_it, desc="Evaluation", total=batch_count):
             self.evaluate_batch(batch)
-        self.evaluate_bulk()
         self.write_summary()
         logger.info("Evaluation done")
 
@@ -285,19 +272,6 @@ class TokotronEvaluator:
                 wavs_ref=bogus_wavs,
                 length_ref=bogus_length,
             )
-        else:
-            bogus_file_name = self.output_folder / "bogus.wav"
-            evaluator = self.bulk_evaluators[evaluator_key]
-            sb.dataio.dataio.write_audio(
-                str(bogus_file_name),
-                bogus_wavs[0].cpu(),
-                samplerate=self.hparams.model_sample_rate,
-            )
-            result = evaluator.evaluate_files(
-                file_names=[bogus_file_name],
-                text=["BOGUS"],
-                file_names_ref=[bogus_file_name],
-            )
 
         return ["uttid"] + list(result.details.keys())
 
@@ -311,9 +285,10 @@ class TokotronEvaluator:
         with torch.no_grad():
             batch = batch.to(self.device)
             tokens, tokens_length = batch.tokens
-            vocoder_to_device(self.modules.vocoder, self.device)
-            if hasattr(self.modules.vocoder, "device"):
-                self.modules.vocoder.device = self.device
+            if hasattr(self.modules, "vocoder"):
+                vocoder_to_device(self.modules.vocoder, self.device)
+                if hasattr(self.modules.vocoder, "device"):
+                    self.modules.vocoder.device = self.device
             audio_resampled = torchaudio.functional.resample(
                 batch.sig.data,
                 self.hparams.sample_rate,
@@ -360,19 +335,6 @@ class TokotronEvaluator:
                 perf_stats["total_flops"] = perf_stats["vocoder_flops"] + perf_stats["infer_flops"]
                 perf_stats["total_flops_per_step"] = perf_stats["total_flops"] / perf_stats["steps"]
                 self.write_perf_stats(batch.uttid, perf_stats)
-
-
-    def evaluate_bulk(self):
-        """Performs bulk evaluation"""
-        for evaluator_key, evaluator in self.bulk_evaluators.items():
-            result = evaluator.evaluate_files(
-                file_names=self.sample_file_names,
-                text=self.sample_text,
-                file_names_ref=self.ref_file_names,
-            )
-            self.details[evaluator_key].append(result.details)
-            details = undo_batch(result.details)
-            self.write_result(evaluator_key, self.item_ids, details)
 
     def write_result(self, evaluator_key, uttid, details):
         """Outputs the result details to the report for the specified evaluator
