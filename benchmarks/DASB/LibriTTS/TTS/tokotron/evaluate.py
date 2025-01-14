@@ -4,7 +4,7 @@ Authors
 * Artem Ploujnikov 2024
 """
 
-#TODO: There are too many evaluation scripts. Refactor to extract common
+# TODO: There are too many evaluation scripts. Refactor to extract common
 # features
 
 import speechbrain as sb
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 class TokotronEvaluator:
     """An evaluator class for the TTS model
-    
+
     Arguments
     ---------
     hparams: dict
@@ -41,6 +41,7 @@ class TokotronEvaluator:
     device : str | torch.device
         the device
     """
+
     def __init__(self, hparams, create_waveform_fn, device):
         self.hparams = SimpleNamespace(**hparams)
         self.create_waveform_fn = create_waveform_fn
@@ -63,7 +64,9 @@ class TokotronEvaluator:
             self.evaluators = {}
 
         if not self.evaluators:
-            logger.warning("No evaluators were defined - this run will produce samples only")
+            logger.warning(
+                "No evaluators were defined - this run will produce samples only"
+            )
 
         self.attention = []
 
@@ -91,7 +94,7 @@ class TokotronEvaluator:
         self.create_reports()
         self.modules.model.show_inference_progress = False
         self.item_ids = []
-        details_keys = list(self.evaluators.keys()) 
+        details_keys = list(self.evaluators.keys())
         self.details = {evaluator_key: [] for evaluator_key in details_keys}
         self.sample_text = []
         self.sample_file_names = []
@@ -124,7 +127,6 @@ class TokotronEvaluator:
         output_folder.mkdir(parents=True, exist_ok=True)
         return output_folder
 
-
     def evaluate(self, dataset):
         """Runs evaluation on a dataset
 
@@ -139,17 +141,18 @@ class TokotronEvaluator:
             raise ValueError("Unable to recover the checkpoint")
         self.modules.model.eval()
         if self.hparams.eval_samples is not None:
-            dataset = dataset.filtered_sorted(select_n=self.hparams.eval_samples)
-        loader = sb.dataio.dataloader.make_dataloader(dataset, batch_size=self.hparams.batch_size)
+            dataset = dataset.filtered_sorted(
+                select_n=self.hparams.eval_samples
+            )
+        loader = sb.dataio.dataloader.make_dataloader(
+            dataset, batch_size=self.hparams.batch_size
+        )
         loader_it = iter(loader)
         self.create_reports()
         self.modules.model.show_inference_progress = False
         self.item_ids = []
         details_keys = list(self.evaluators.keys())
-        self.details = {
-            evaluator_key: []
-            for evaluator_key in details_keys
-        }
+        self.details = {evaluator_key: [] for evaluator_key in details_keys}
         self.read_reports()
         self.sample_text = []
         self.sample_file_names = []
@@ -187,7 +190,7 @@ class TokotronEvaluator:
                     "vocoder_flops",
                     "total_flops",
                     "total_flops_per_step",
-                ]
+                ],
             )
             self.perf_writer.writeheader()
 
@@ -221,18 +224,14 @@ class TokotronEvaluator:
 
         with flop_counter:
             wav = self.create_waveform_fn(
-                infer_out.audio,
-                length=infer_out.length,
-                emb=emb
+                infer_out.audio, length=infer_out.length, emb=emb
             )
             if wav.dim() > 2:
                 wav = wav.squeeze(1)
 
         if self.hparams.eval_perf:
             flops = flop_counter.get_total_flops()
-            stats = {
-                "vocoder_flops": flops
-            }
+            stats = {"vocoder_flops": flops}
         return wav, stats
 
     def read_reports(self):
@@ -245,7 +244,10 @@ class TokotronEvaluator:
                     reader = csv.DictReader(report_file)
                     for row in reader:
                         del row["uttid"]
-                        row = {key : handle_number(value) for key, value in row.items()}
+                        row = {
+                            key: handle_number(value)
+                            for key, value in row.items()
+                        }
                         self.details[evaluator_key].append(row)
 
     def get_report_columns(self, evaluator_key):
@@ -262,7 +264,7 @@ class TokotronEvaluator:
             a list of column headers
         """
         bogus_wavs = torch.randn(2, 10000, device=self.device)
-        bogus_length = torch.tensor([1., 1.], device=self.device)
+        bogus_length = torch.tensor([1.0, 1.0], device=self.device)
         if evaluator_key in self.evaluators:
             evaluator = self.evaluators[evaluator_key]
             result = evaluator.evaluate(
@@ -294,21 +296,14 @@ class TokotronEvaluator:
                 self.hparams.sample_rate,
                 self.hparams.model_sample_rate,
             )
-            mel_spec = self.spk_emb_model.mel_spectogram(
-                audio=audio_resampled
-            )
+            mel_spec = self.spk_emb_model.mel_spectogram(audio=audio_resampled)
             spk_emb = self.spk_emb_model.encode_mel_spectrogram_batch(
                 mel_spec, batch.sig.lengths
             ).squeeze(1)
             infer_out, perf_stats = self.infer(
-                tokens=tokens, tokens_length=tokens_length,
-                emb={
-                    "spk": spk_emb
-                }
+                tokens=tokens, tokens_length=tokens_length, emb={"spk": spk_emb}
             )
-            wav, vocoder_stats = self.vocoder(
-                infer_out, spk_emb
-            )
+            wav, vocoder_stats = self.vocoder(infer_out, spk_emb)
             perf_stats.update(vocoder_stats)
             length = infer_out.length
             if wav.dim() > 2:
@@ -324,7 +319,7 @@ class TokotronEvaluator:
                     wavs_ref=batch.sig.data,
                     length_ref=batch.sig.lengths,
                     sample_rate_ref=self.hparams.sample_rate,
-                    sample_rate=self.hparams.model_sample_rate
+                    sample_rate=self.hparams.model_sample_rate,
                 )
                 details = undo_batch(result.details)
                 self.write_result(evaluator_key, batch.uttid, details)
@@ -332,8 +327,12 @@ class TokotronEvaluator:
 
             if self.hparams.eval_perf:
                 perf_stats.update(vocoder_stats)
-                perf_stats["total_flops"] = perf_stats["vocoder_flops"] + perf_stats["infer_flops"]
-                perf_stats["total_flops_per_step"] = perf_stats["total_flops"] / perf_stats["steps"]
+                perf_stats["total_flops"] = (
+                    perf_stats["vocoder_flops"] + perf_stats["infer_flops"]
+                )
+                perf_stats["total_flops_per_step"] = (
+                    perf_stats["total_flops"] / perf_stats["steps"]
+                )
                 self.write_perf_stats(batch.uttid, perf_stats)
 
     def write_result(self, evaluator_key, uttid, details):
@@ -354,9 +353,7 @@ class TokotronEvaluator:
                 "uttid": uttid,
                 **details_item,
             }
-            writer.writerow(
-                ascii_only(flatten(report_details))
-            )
+            writer.writerow(ascii_only(flatten(report_details)))
         self.report_files[evaluator_key].flush()
 
     def save_samples(self, batch, wav, length):
@@ -375,12 +372,12 @@ class TokotronEvaluator:
         for item_id, infer_wav, wav_length in zip(
             batch.uttid, wav, wav_length_abs
         ):
-            file_name = str(
-                self.samples_folder / f"{item_id}_pred.wav"
-            )
-            infer_wav_cut = infer_wav[:wav_length.item()].cpu()
+            file_name = str(self.samples_folder / f"{item_id}_pred.wav")
+            infer_wav_cut = infer_wav[: wav_length.item()].cpu()
             sb.dataio.dataio.write_audio(
-                file_name, infer_wav_cut, samplerate=self.hparams.model_sample_rate
+                file_name,
+                infer_wav_cut,
+                samplerate=self.hparams.model_sample_rate,
             )
             self.sample_file_names.append(file_name)
 
@@ -392,14 +389,8 @@ class TokotronEvaluator:
             json.dump(summary, output_file, indent=4)
 
     def write_perf_stats(self, uttid, details):
-        self.perf_writer.writerow(
-            {
-                "uttid": " ".join(uttid),
-                **details
-            }
-        )
+        self.perf_writer.writerow({"uttid": " ".join(uttid), **details})
         self.perf_file.flush()
-
 
     def compute_summary(self):
         """Computes the summarized statistics"""
@@ -407,13 +398,13 @@ class TokotronEvaluator:
             f"{evaluator_key}_{stat_key}": value
             for evaluator_key in self.enabled_evaluators
             if evaluator_key in self.details
-            for metric_key in self.hparams.eval_summary[evaluator_key]["descriptive"]
+            for metric_key in self.hparams.eval_summary[evaluator_key][
+                "descriptive"
+            ]
             for stat_key, value in descriptive_statistics(
-                items=self.details[evaluator_key],
-                key=metric_key,
+                items=self.details[evaluator_key], key=metric_key,
             ).items()
         }
-    
 
 
 def flatten(value):
@@ -436,18 +427,15 @@ def flatten(value):
 
 
 RE_PUNCTUATION = re.compile(
-    "|".join(
-        re.escape(char) for char in string.punctuation
-    )
+    "|".join(re.escape(char) for char in string.punctuation)
 )
 
-RE_NON_ASCII = re.compile(r'[^\x00-\x7F]+')
+RE_NON_ASCII = re.compile(r"[^\x00-\x7F]+")
 
 
 def ascii_only(values):
     return {
-        key: RE_NON_ASCII.sub('', value) if isinstance(value, str)
-        else value
+        key: RE_NON_ASCII.sub("", value) if isinstance(value, str) else value
         for key, value in values.items()
     }
 
@@ -494,7 +482,7 @@ def audio_ref_pipeline(wav):
 
 def descriptive_statistics(items, key):
     """Computes descriptive statistics for the summary
-    
+
     Arguments
     ---------
     items : list
@@ -515,8 +503,7 @@ def descriptive_statistics(items, key):
         "iqr": q3 - q1,
     }
     return {
-        f"{key}_{stat_key}": value.item()
-        for stat_key, value in stats.items()
+        f"{key}_{stat_key}": value.item() for stat_key, value in stats.items()
     }
 
 
@@ -562,4 +549,3 @@ def handle_number(value):
     elif RE_FLOAT.match(value):
         value = float(value)
     return value
-

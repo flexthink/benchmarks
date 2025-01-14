@@ -202,7 +202,6 @@ class TokotronEvaluator:
                 self.write_result(evaluator_key, batch.uttid, details)
                 self.details[evaluator_key].extend(details)
 
-
     def write_result(self, evaluator_key, uttid, details):
         """Outputs the result details to the report for the specified evaluator
 

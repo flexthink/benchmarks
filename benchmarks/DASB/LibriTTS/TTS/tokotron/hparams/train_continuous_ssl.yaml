@@ -233,7 +233,7 @@ spk_emb_discrete_guide: !name:speechbrain.inference.interfaces.foreign_class
 asr_model: !name:benchmarks.DASB.model.Tokotron.TransformerASRGuide
     source: !ref <asr_src>
     savedir:  !ref <pretrained_model_save_folder>/asr-transformer
-    
+
 
 # Dataloader options
 train_dataloader_opts:

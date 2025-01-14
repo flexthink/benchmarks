@@ -143,7 +143,7 @@ token_model: !new:benchmarks.DASB.model.custom_model.DACFeatureExtractor
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
     savedir: !ref <pretrained_model_save_folder>/ecapa
-    
+
 
 # Dataloader options
 train_dataloader_opts:
@@ -257,7 +257,7 @@ model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint d
     z_dim: !ref <z_dim>
     hidden_dim: !ref <hidden_dim>
     n_dim: !ref <n_dim>
-    decoder_chunk_size: !ref <decoder_chunk_size>    
+    decoder_chunk_size: !ref <decoder_chunk_size>
     nhead: !ref <nhead>
     enc_num_layers: !ref <enc_num_layers>
     dec_num_layers: !ref <dec_num_layers>

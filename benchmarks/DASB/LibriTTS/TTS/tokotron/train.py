@@ -28,7 +28,7 @@ from Tokotron import (
     get_silence_token,
     use_silence_padding,
     feature_pad_to,
-)    
+)
 from types import SimpleNamespace
 from evaluate import TokotronEvaluator
 import re
@@ -60,7 +60,9 @@ class TokotronBrain(sb.Brain):
             create_waveform_fn=self.create_waveform,
             device=self.device,
         )
-        self.representation_mode = RepresentationMode(self.hparams.representation_mode)
+        self.representation_mode = RepresentationMode(
+            self.hparams.representation_mode
+        )
 
     def create_waveform(self, audio, length, emb):
         """Creates a waveform from a discrete or continuous audio
@@ -104,7 +106,7 @@ class TokotronBrain(sb.Brain):
             audio_bos_length,
             audio_tgt,
             audio_tgt_length,
-            spk_emb
+            spk_emb,
         ) = features
 
         predictions = self.modules.model(
@@ -112,9 +114,7 @@ class TokotronBrain(sb.Brain):
             input_length=tokens_length,
             audio=audio_bos,
             audio_length=audio_bos_length,
-            emb={
-                "spk": spk_emb
-            }
+            emb={"spk": spk_emb},
         )
 
         return predictions, features
@@ -136,13 +136,10 @@ class TokotronBrain(sb.Brain):
                 1, 2, 0, 3
             )
             batch_size, _, heads, dim = audio.shape
-            bos = torch.zeros_like(
-                audio[:, :1, :, :]
-            ).reshape(batch_size, self.hparams.bos_width, heads, dim)
-            audio_bos = torch.concatenate(
-                [bos, audio],
-                dim=1
+            bos = torch.zeros_like(audio[:, :1, :, :]).reshape(
+                batch_size, self.hparams.bos_width, heads, dim
             )
+            audio_bos = torch.concatenate([bos, audio], dim=1)
             audio_bos_length = audio_length * audio.size(1) / audio_bos.size(1)
             audio_tgt = audio
             audio_tgt_length = audio_length
@@ -150,8 +147,7 @@ class TokotronBrain(sb.Brain):
         return audio_bos, audio_bos_length, audio_tgt, audio_tgt_length, spk_emb
 
     def _compute_spk(self, wav, wav_length):
-        mel_spec = self.spk_emb_model.mel_spectogram(
-            wav.squeeze(1))
+        mel_spec = self.spk_emb_model.mel_spectogram(wav.squeeze(1))
         spk_emb_pred = self.spk_emb_model.encode_mel_spectrogram_batch(
             mel_spec, wav_length
         )
@@ -159,12 +155,14 @@ class TokotronBrain(sb.Brain):
 
     def _get_selected_layer_idx(self):
         selected_layers = None
-        if hasattr(self.hparams, "select_layers") and self.hparams.select_layers:
+        if (
+            hasattr(self.hparams, "select_layers")
+            and self.hparams.select_layers
+        ):
             layers = self.hparams.select_layers
             model_layers_map = {
                 layer: idx
-                for idx, layer in enumerate(
-                    self.hparams.token_model_layers)
+                for idx, layer in enumerate(self.hparams.token_model_layers)
             }
             selected_layers = [model_layers_map[layer] for layer in layers]
         return selected_layers
@@ -214,7 +212,7 @@ class TokotronBrain(sb.Brain):
             audio_bos_length,
             audio_tgt,
             audio_tgt_length,
-            spk_emb
+            spk_emb,
         ) = features
 
         loss_details = self.hparams.compute_cost(
@@ -246,7 +244,9 @@ class TokotronBrain(sb.Brain):
             The currently-starting epoch. This is passed
             `None` during the test stage.
         """
-        if hasattr(self.modules, "vocoder") and hasattr(self.modules.vocoder, "model"):
+        if hasattr(self.modules, "vocoder") and hasattr(
+            self.modules.vocoder, "model"
+        ):
             self.modules.vocoder.model.device = self.device
         self.layer_idx = self._get_selected_layer_idx()
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
@@ -273,7 +273,9 @@ class TokotronBrain(sb.Brain):
         self.spk_emb_model = self.hparams.spk_emb_model(
             run_opts=pretrained_run_opts
         )
-        self.representation_mode = RepresentationMode(self.hparams.representation_mode)
+        self.representation_mode = RepresentationMode(
+            self.hparams.representation_mode
+        )
         # If speaker embedding shuffling is enabled, re-initialize them for the
         # epoch
         if self.hparams.spk_emb_shuffle:
@@ -370,7 +372,7 @@ class TokotronBrain(sb.Brain):
         loss = self.compute_objectives(out, batch, stage=stage)
         if self.is_evaluating:
             self.evaluator.evaluate_batch(batch)
-        return loss.detach().cpu()            
+        return loss.detach().cpu()
 
     def make_dataloader(
         self, dataset, stage, ckpt_prefix="dataloader-", **loader_kwargs
@@ -398,7 +400,9 @@ class TokotronBrain(sb.Brain):
         -------
         DataLoader for the input dataset
         """
-        if stage == sb.Stage.TRAIN and not getattr(self, "_ckpt_recovered", False):
+        if stage == sb.Stage.TRAIN and not getattr(
+            self, "_ckpt_recovered", False
+        ):
             self.checkpointer.recover_if_possible()
             self._ckpt_recovered = True
         if self.guides_running(pre_epoch=True):
@@ -407,7 +411,7 @@ class TokotronBrain(sb.Brain):
             dataset=dataset,
             stage=stage,
             ckpt_prefix=ckpt_prefix,
-            **loader_kwargs
+            **loader_kwargs,
         )
 
     def guides_running(self, pre_epoch=False):
@@ -477,7 +481,6 @@ class TokotronBrain(sb.Brain):
         return loss
 
 
-
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phn"}
 
 
@@ -491,7 +494,7 @@ def dataio_prepare(hparams, guide_ctx=None):
     hparams : dict
         This dictionary is loaded from the `train.yaml` file, and it includes
         all the hyperparameters needed for dataset construction and loading.
-    
+
     guide_ctx : SimpleNamespace, optional
         The guide context with pretrained models
 
@@ -546,19 +549,18 @@ def dataio_prepare(hparams, guide_ctx=None):
         yield label.upper()
         label_norm_eval = RE_PUNCTUATION.sub("", label_norm)
         yield label_norm_eval
- 
 
     @sb.utils.data_pipeline.takes(input_feature)
     @sb.utils.data_pipeline.provides("tokens")
     def tokens_pipeline(label):
         """Processes the transcriptions to generate proper labels"""
         return label_encoder.encode_sequence_torch(label)
-    
+
     @sb.utils.data_pipeline.takes("label_norm")
     @sb.utils.data_pipeline.provides("asr_tokens")
     def asr_tokens_pipeline(label):
         """Processes the transcriptions to generate proper labels"""
-        return torch.tensor(guide_ctx.asr_model.encode(label))    
+        return torch.tensor(guide_ctx.asr_model.encode(label))
 
     use_silence_padding = hparams.get("use_silence_padding", True)
     if "token_model_layers" in hparams:
@@ -577,7 +579,11 @@ def dataio_prepare(hparams, guide_ctx=None):
             * hparams["eos_index"]
         )
 
-    silence_padding = silence_token if representation_mode == RepresentationMode.DISCRETE else silence_emb
+    silence_padding = (
+        silence_token
+        if representation_mode == RepresentationMode.DISCRETE
+        else silence_emb
+    )
     silence_padding = silence_padding.cpu()
     silence_padding_len = int(math.ceil(hparams["silence_padding"]))
     bos_width = hparams.get("bos_width", 1)
@@ -585,14 +591,18 @@ def dataio_prepare(hparams, guide_ctx=None):
         torch.ones(bos_width, audio_tokens_per_step) * hparams["bos_index"]
     )
     if representation_mode == RepresentationMode.CONTINUOUS:
-        audio_bos_prefix = audio_bos_prefix.unsqueeze(-1).repeat(1, 1, hparams["audio_dim"])
+        audio_bos_prefix = audio_bos_prefix.unsqueeze(-1).repeat(
+            1, 1, hparams["audio_dim"]
+        )
 
     tokens_loader = hparams.get("tokens_loader")
 
     @sb.utils.data_pipeline.takes("uttid")
     @sb.utils.data_pipeline.provides("audio_pad", "audio_bos")
     def audio_pipeline(id):
-        audio = tokens_loader.tokens_by_uttid(id, num_codebooks=audio_tokens_per_step)    
+        audio = tokens_loader.tokens_by_uttid(
+            id, num_codebooks=audio_tokens_per_step
+        )
         audio_pad = feature_pad_to(
             audio, len(audio) + silence_padding_len, silence_padding
         )
@@ -613,7 +623,7 @@ def dataio_prepare(hparams, guide_ctx=None):
         text_pipeline,
         tokens_pipeline,
         audio_ref_pipeline,
-        audio_pipeline
+        audio_pipeline,
     ]
     output_keys = [
         "uttid",
@@ -628,7 +638,11 @@ def dataio_prepare(hparams, guide_ctx=None):
 
     resample_fn = {}
     for dataset in data_info:
-        dataset_output_keys = output_keys if dataset == "train" else output_keys + ["label_norm_eval"]
+        dataset_output_keys = (
+            output_keys
+            if dataset == "train"
+            else output_keys + ["label_norm_eval"]
+        )
         dynamic_dataset = sb.dataio.dataset.DynamicItemDataset.from_json(
             json_path=data_info[dataset],
             replacements={"data_root": data_folder},
@@ -639,10 +653,7 @@ def dataio_prepare(hparams, guide_ctx=None):
         datasets[dataset] = dynamic_dataset
         hparams[f"{dataset}_dataloader_opts"]["shuffle"] = False
         if hparams["spk_emb_shuffle"]:
-            spk_idx, spk_samplers = group_by_speaker(
-                dynamic_dataset,
-                hparams
-            )
+            spk_idx, spk_samplers = group_by_speaker(dynamic_dataset, hparams)
             spk_sample = {}
             spk_emb_random_match_pipeline = partial(
                 spk_emb_random_match,
@@ -659,7 +670,7 @@ def dataio_prepare(hparams, guide_ctx=None):
                 spk_idx=spk_idx,
                 sample=spk_sample,
                 dataset=dynamic_dataset,
-                spk_samplers=spk_samplers
+                spk_samplers=spk_samplers,
             )
             resample_fn[dataset](epoch=0)
 
@@ -689,9 +700,7 @@ def dataio_prepare(hparams, guide_ctx=None):
     if hparams["input"] == "phonemes":
         for key in datasets:
             datasets[key] = datasets[key].filtered_sorted(
-                key_test={
-                    "phn": lambda value: value
-                }
+                key_test={"phn": lambda value: value}
             )
     datasets["sample"] = select_sample(hparams, datasets)
     return datasets, silence_padding, resample_fn
@@ -748,7 +757,7 @@ def group_by_speaker(dataset, hparams):
         the dataset from which to select items
     hparams : dict
         hyperparameters
-    
+
     Returns
     -------
     spk_idx : dict
@@ -929,14 +938,14 @@ def get_guide_ctx(hparams, run_opts):
     """Initializes a context object for guides,
     containing pretrained models only for guides that will be
     used per hparams
-    
+
     Arguments
     ---------
-    hparams : dict  
+    hparams : dict
         Hyperparameters
     run_opts : dict
         Run options
-    
+
     Returns
     -------
     ctx : SimpleNamespace
@@ -958,7 +967,6 @@ def get_guide_ctx(hparams, run_opts):
 RE_PUNCTUATION = re.compile(
     "|".join(re.escape(char) for char in string.punctuation)
 )
-
 
 
 def run_experiment(brain_cls):
@@ -1014,14 +1022,16 @@ def run_experiment(brain_cls):
                 "save_json_train": hparams["train_json"],
                 "save_json_valid": hparams["valid_json"],
                 "save_json_test": (
-                    hparams["test_json"] if "test" in hparams["splits"]
+                    hparams["test_json"]
+                    if "test" in hparams["splits"]
                     else None
                 ),
                 "sample_rate": hparams["sample_rate"],
                 "train_split": hparams["train_split"],
                 "valid_split": hparams["valid_split"],
                 "test_split": (
-                    hparams["test_split"] if "test" in hparams["splits"]
+                    hparams["test_split"]
+                    if "test" in hparams["splits"]
                     else None
                 ),
                 "seed": hparams["seed"],
@@ -1031,11 +1041,9 @@ def run_experiment(brain_cls):
 
     # We can now directly create the datasets for training, valid, and test
     guide_ctx = get_guide_ctx(hparams, run_opts)
-    (
-        datasets,
-        silence_padding,
-        resample_fn
-    ) = dataio_prepare(hparams, guide_ctx)
+    (datasets, silence_padding, resample_fn) = dataio_prepare(
+        hparams, guide_ctx
+    )
 
     # Apply overfit test settings
     datasets = apply_overfit_test(hparams, datasets)

@@ -145,7 +145,7 @@ use_silence_padding: True
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
     savedir: !ref <pretrained_model_save_folder>/ecapa
-    
+
 
 # Dataloader options
 train_dataloader_opts:

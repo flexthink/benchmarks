@@ -224,7 +224,7 @@ spk_emb_discrete_guide: !name:speechbrain.inference.interfaces.foreign_class
     pymodule_file: custom_interface.py
     classname: DiscreteSpkEmb
     overrides:
-        ssl_layer_num_selected: !ref <token_model_layers>    
+        ssl_layer_num_selected: !ref <token_model_layers>
 
 # Dataloader options
 train_dataloader_opts:

@@ -34,9 +34,12 @@ logger = logging.getLogger(__name__)
 has_transformers = False
 try:
     from transformers import AutoModelForAudioXVector
+
     has_transformers = True
 except ImportError:
-    logger.warning("transformers library not found - some evaluators may be disabled")
+    logger.warning(
+        "transformers library not found - some evaluators may be disabled"
+    )
 
 
 RE_PUNCTUATION = re.compile(
@@ -850,10 +853,7 @@ class UTMOSSpeechEvaluator(SpeechEvaluator):
         sample_rate=16000,
     ):
         super().__init__(sample_rate=sample_rate)
-        self.model = UTMOSModel(
-            source=source,
-            save_path=save_path,
-        )
+        self.model = UTMOSModel(source=source, save_path=save_path,)
         if run_opts is not None:
             device = run_opts.get("device")
             if device:
@@ -930,6 +930,7 @@ class SpkSimWavLM(SpeechEvaluator):
         The sample rate to which all samples will be resampled
         before being processed
     """
+
     def __init__(
         self,
         source,
@@ -937,7 +938,7 @@ class SpkSimWavLM(SpeechEvaluator):
         model_sample_rate=16000,
         run_opts=None,
         *args,
-        **kwargs
+        **kwargs,
     ):
         if not has_transformers:
             raise ValueError(
@@ -948,9 +949,7 @@ class SpkSimWavLM(SpeechEvaluator):
             run_opts = {}
         device = run_opts.get("device")
         self.model = AutoModelForAudioXVector.from_pretrained(
-            source, cache_dir=savedir,
-            *args,
-            **kwargs
+            source, cache_dir=savedir, *args, **kwargs
         )
         if device is not None:
             self.model = self.model.to(device)
@@ -972,15 +971,13 @@ class SpkSimWavLM(SpeechEvaluator):
         # Resample
         if sample_rate is not None:
             wavs = torchaudio.functional.resample(
-                wavs,
-                orig_freq=sample_rate,
-                new_freq=self.model_sample_rate
+                wavs, orig_freq=sample_rate, new_freq=self.model_sample_rate
             )
         if sample_rate_ref is not None:
             wavs_ref = torchaudio.functional.resample(
                 wavs_ref,
                 orig_freq=sample_rate_ref,
-                new_freq=self.model_sample_rate
+                new_freq=self.model_sample_rate,
             )
 
         # Concatenate
@@ -989,14 +986,8 @@ class SpkSimWavLM(SpeechEvaluator):
         length_abs = length * wavs_max_len
         length_ref_abs = length_ref * wavs_ref_max_len
         max_len = max(wavs_max_len, wavs_ref_max_len)
-        wavs, _ = pad_right_to(
-            wavs,
-            (batch_size, max_len)
-        )
-        wavs_ref, _ = pad_right_to(
-            wavs_ref,
-            (batch_size, max_len)
-        )
+        wavs, _ = pad_right_to(wavs, (batch_size, max_len))
+        wavs_ref, _ = pad_right_to(wavs_ref, (batch_size, max_len))
         audio = torch.cat([wavs, wavs_ref])
 
         length_cat_abs = torch.cat([length_abs, length_ref_abs])
@@ -1015,10 +1006,7 @@ class SpkSimWavLM(SpeechEvaluator):
             hyp_embs, ref_embs, dim=-1
         )
 
-        return SpeechEvaluationResult(
-            scores,
-            {"score": scores}
-        )
+        return SpeechEvaluationResult(scores, {"score": scores})
 
 
 def vocoder_to_device(vocoder, device):
