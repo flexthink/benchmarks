@@ -22,7 +22,6 @@ valid_json: !ref <output_folder>/dev-clean.json
 test_json: !ref <output_folder>/test.json
 
 
-
 batch_size: 8
 num_workers: 8
 src_key: wav

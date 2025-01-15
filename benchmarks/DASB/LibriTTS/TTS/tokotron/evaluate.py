@@ -11,14 +11,12 @@ import speechbrain as sb
 import json
 import logging
 import math
-import sys
 import csv
 import torch
 import torchaudio
 import string
 import re
 from pathlib import Path
-from hyperpyyaml import load_hyperpyyaml
 from types import SimpleNamespace
 from torch.nn import ModuleDict
 from tqdm.auto import tqdm
@@ -505,37 +503,6 @@ def descriptive_statistics(items, key):
     return {
         f"{key}_{stat_key}": value.item() for stat_key, value in stats.items()
     }
-
-
-def select_subset(dataset, hparams):
-    """Selects a subset of the dataset provided, if specified.
-    The selection is controlled by a hyperparameter named
-    eval_subset, which is expected to list the IDs of the
-    data items on which evaluation will take place, one per line
-
-    Arguments
-    ---------
-    dataset : speechbrain.dataio.dataset.DynamicItemDataset
-        A dataset
-    hparams : dict
-        A hyperparameters file
-
-    Returns
-    -------
-    subset : dataset
-        The dataset, filtered down if applicable
-    """
-    eval_subset_path = hparams.get("eval_subset")
-    if eval_subset_path is not None:
-        eval_subset_path = Path(eval_subset_path)
-        if not eval_subset_path.exists():
-            raise ValueError(f"eval_subset {eval_subset_path} does not exist")
-        with open(eval_subset_path) as eval_subset_file:
-            eval_subset_ids = [line.strip() for line in eval_subset_file]
-        subset = FilteredSortedDynamicItemDataset(dataset, eval_subset_ids)
-    else:
-        subset = dataset
-    return subset
 
 
 RE_INTEGER = re.compile(r"^-?\d+$")

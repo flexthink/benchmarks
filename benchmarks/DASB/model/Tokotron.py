@@ -28,8 +28,6 @@ from speechbrain.nnet.embedding import Embedding
 from speechbrain.nnet.linear import Linear
 from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss
 from speechbrain.dataio.dataio import length_to_mask
-from speechbrain.dataio.batch import PaddedBatch
-from speechbrain.decoders.seq2seq import S2STransformerBeamSearcher
 from speechbrain.utils.data_utils import concat_padded_features
 from speechbrain.nnet.schedulers import NoamScheduler
 

@@ -15,7 +15,6 @@ from speechbrain.dataio.dataio import length_to_mask
 from speechbrain.decoders.seq2seq import S2SWhisperGreedySearcher
 from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.utils.metric_stats import ErrorRateStats
-from speechbrain.utils.superpowers import run_shell
 from speechbrain.utils.data_utils import pad_right_to
 from speechbrain.utils.fetching import fetch
 from collections import namedtuple

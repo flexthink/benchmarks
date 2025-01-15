@@ -41,7 +41,7 @@ samples_interval: 5
 tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
 
 tokens_loader: !new:utils.tokens.TokensLoader
-   data_path: !ref <tokens_folder>
+    data_path: !ref <tokens_folder>
 
 token_model_kwargs:
     n_quantizers: !ref <audio_tokens_per_step>
@@ -194,11 +194,11 @@ model: !new:Tokotron.TokotronTransformerModel  # yamllint disable-line rule:line
     infer_max_audio_length: !ref <infer_max_audio_length>
 
 tokenizer: !new:utils.tokenizer_interface.DACTokenizer
-  model_type: !ref <model_type>
-  model_bitrate: !ref <model_bitrate>
-  n_codebooks: !ref <audio_tokens_per_step>
-  load_pretrained: True
-  tag: latest
+    model_type: !ref <model_type>
+    model_bitrate: !ref <model_bitrate>
+    n_codebooks: !ref <audio_tokens_per_step>
+    load_pretrained: True
+    tag: latest
 
 
 modules:
@@ -238,4 +238,3 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
-

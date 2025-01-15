@@ -310,8 +310,8 @@ train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
 
 tokenizer: !new:utils.tokenizer_interface.DiscreteSSLTokenizer
-  save_path: !ref <kmeans_cache_dir>
-  ssl_model: !ref <ssl_model>
-  vocoder_repo_id: !ref <vocoder_repo_id>
-  kmeans_dataset: !ref <kmeans_dataset>
-  num_clusters: !ref <vocab_size>
+    save_path: !ref <kmeans_cache_dir>
+    ssl_model: !ref <ssl_model>
+    vocoder_repo_id: !ref <vocoder_repo_id>
+    kmeans_dataset: !ref <kmeans_dataset>
+    num_clusters: !ref <vocab_size>

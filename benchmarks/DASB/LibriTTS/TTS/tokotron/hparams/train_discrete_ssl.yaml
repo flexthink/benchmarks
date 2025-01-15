@@ -9,10 +9,9 @@ __set_seed: !apply:torch.manual_seed [!ref <seed>]
 output_folder: !ref results/transformer/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
-
 # Data files
-data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
-data_folder_alignments: null
+data_folder: !PLACEHOLDER
+data_folder_alignments: null # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <data_folder>/prepared
 pretrained_model_save_folder: !ref <prepare_save_folder>
 ssl_model_type: wavlm
@@ -26,11 +25,11 @@ train_json: !ref <prepare_save_folder>/train.json
 valid_json: !ref <prepare_save_folder>/valid.json
 test_json: !ref <prepare_save_folder>/test.json
 train_split: !apply:speechbrain.utils.hparams.choice
-  value: !ref <data_mode>
-  choices:
-    lite: ["train-clean-100"]
-    clean: ["train-clean-100", "train-clean-360"]
-    full: ["train-clean-100", "train-clean-360", "train-other-500"]
+    value: !ref <data_mode>
+    choices:
+        lite: ["train-clean-100"]
+        clean: ["train-clean-100", "train-clean-360"]
+        full: ["train-clean-100", "train-clean-360", "train-other-500"]
 valid_split: ["dev-clean"]
 test_split: ["test-clean"]
 frozen_split_path: null
@@ -42,10 +41,10 @@ progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
 
-tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+tokens_folder: !PLACEHOLDER # Path to the folder where extracted tokens are saved.
 
 tokens_loader: !new:utils.tokens.TokensLoader
-   data_path: !ref <tokens_folder>
+    data_path: !ref <tokens_folder>
 
 # Position shift
 use_position_shift: True
@@ -192,7 +191,6 @@ guides_asr: True
 guides_asr_loss_weight: 0.1
 
 
-
 # Token model (pretrained)
 ssl_model: !apply:speechbrain.utils.hparams.choice
     value: !ref <ssl_model_type>
@@ -270,8 +268,6 @@ extract_features_opts:
     model_sample_rate: !ref <model_sample_rate>
     spk_emb_model: !ref <spk_emb_model>
     data_folder_alignments: !ref <data_folder_alignments>
-
-
 ####################### Model parameters ###########################
 # Transformer
 d_model: 512
@@ -303,22 +299,18 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
         phonemes: !ref <phn_num_tokens>
 audio_tokens_per_step: 6
 attention_type: regularMHA
-
 ############################## models ################################
-
 vocoder: !apply:speechbrain.inference.vocoders.UnitHIFIGAN.from_hparams
     source: !ref <vocoder_src>
     savedir: !ref <vocoder_model_path>
-
 emb:
-  spk:
-    kind: "pretrained"
-    dim: 192
-    vocoder: True
-    injection: !ref <spk_emb_injection>
-
-model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
-    input_num_tokens: !ref <input_num_tokens>
+    spk:
+        kind: "pretrained"
+        dim: 192
+        vocoder: True
+        injection: !ref <spk_emb_injection>
+model: !new:Tokotron.TokotronTransformerModel
+    input_num_tokens: !ref <input_num_tokens> # yamllint disable-line rule:line-length
     audio_num_tokens: !ref <vocab_size>
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     d_model: !ref <d_model>
@@ -342,16 +334,13 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
     scale_factor: !ref <scale_factor>
     representation_mode: !ref <representation_mode>
     emb: !ref <emb>
-
 modules:
     model: !ref <model>
     vocoder: !ref <vocoder>
     compute_cost: !ref <compute_cost>
-
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
     lr: !ref <lr>
-
 compute_cost: !new:Tokotron.TokotronLoss
     guided_attention_weight: !ref <guided_attention_weight>
     guided_attention_sigma: !ref <guided_attention_sigma>
@@ -389,8 +378,8 @@ spk_sampler: !name:speechbrain.dataio.sampler.ReproducibleRandomSampler
     seed: !ref <seed>
 
 tokenizer: !new:utils.tokenizer_interface.DiscreteSSLTokenizer
-  save_path: !ref <kmeans_cache_dir>
-  ssl_model: !ref <ssl_model>
-  vocoder_repo_id: !ref <vocoder_repo_id>
-  kmeans_dataset: !ref <kmeans_dataset>
-  num_clusters: !ref <vocab_size>
+    save_path: !ref <kmeans_cache_dir>
+    ssl_model: !ref <ssl_model>
+    vocoder_repo_id: !ref <vocoder_repo_id>
+    kmeans_dataset: !ref <kmeans_dataset>
+    num_clusters: !ref <vocab_size>

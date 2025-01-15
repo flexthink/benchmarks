@@ -24,11 +24,11 @@ train_json: !ref <prepare_save_folder>/train.json
 valid_json: !ref <prepare_save_folder>/valid.json
 test_json: !ref <prepare_save_folder>/test.json
 train_split: !apply:speechbrain.utils.hparams.choice
-  value: !ref <data_mode>
-  choices:
-    lite: ["train-clean-100"]
-    clean: ["train-clean-100", "train-clean-360"]
-    full: ["train-clean-100", "train-clean-360", "train-other-500"]
+    value: !ref <data_mode>
+    choices:
+        lite: ["train-clean-100"]
+        clean: ["train-clean-100", "train-clean-360"]
+        full: ["train-clean-100", "train-clean-360", "train-other-500"]
 valid_split: ["dev-clean"]
 test_split: ["test-clean"]
 frozen_split_path: null
@@ -43,7 +43,7 @@ samples_interval: 5
 tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
 
 tokens_loader: !new:utils.tokens.TokensLoader
-   data_path: !ref <tokens_folder>
+    data_path: !ref <tokens_folder>
 
 freeze_token_model: True
 token_model_src: "facebook/encodec_24khz"
@@ -205,11 +205,11 @@ attention_type: regularMHA
 
 ############################## models ################################
 emb:
-  spk:
-    kind: "pretrained"
-    dim: 192
-    vocoder: !ref <vocoder_takes_spk_emb>
-    injection: !ref <spk_emb_injection>
+    spk:
+        kind: "pretrained"
+        dim: 192
+        vocoder: !ref <vocoder_takes_spk_emb>
+        injection: !ref <spk_emb_injection>
 
 model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
@@ -238,13 +238,13 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
 
 
 tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
-   source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
-   save_path: !ref <save_folder>
-   sample_rate: !ref <sample_rate>
-   bandwidth: !ref <bandwidth>
-   flat_embeddings: False
-   freeze: True
-   renorm_embeddings: False
+    source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
+    save_path: !ref <save_folder>
+    sample_rate: !ref <sample_rate>
+    bandwidth: !ref <bandwidth>
+    flat_embeddings: False
+    freeze: True
+    renorm_embeddings: False
 
 
 modules:

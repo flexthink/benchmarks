@@ -24,11 +24,11 @@ train_json: !ref <prepare_save_folder>/train.json
 valid_json: !ref <prepare_save_folder>/valid.json
 test_json: !ref <prepare_save_folder>/test.json
 train_split: !apply:speechbrain.utils.hparams.choice
-  value: !ref <data_mode>
-  choices:
-    lite: ["train-clean-100"]
-    clean: ["train-clean-100", "train-clean-360"]
-    full: ["train-clean-100", "train-clean-360", "train-other-500"]
+    value: !ref <data_mode>
+    choices:
+        lite: ["train-clean-100"]
+        clean: ["train-clean-100", "train-clean-360"]
+        full: ["train-clean-100", "train-clean-360", "train-other-500"]
 valid_split: ["dev-clean"]
 test_split: ["test-clean"]
 frozen_split_path: null
@@ -236,10 +236,10 @@ inference: !apply:speechbrain.utils.hparams.choice
         forward: !ref <inference_forward>
 
 emb:
-  spk:
-    kind: "pretrained"
-    dim: 192
-    vocoder: !ref <vocoder_takes_spk_emb>
+    spk:
+        kind: "pretrained"
+        dim: 192
+        vocoder: !ref <vocoder_takes_spk_emb>
 
 model: !new:benchmarks.DASB.model.Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
     input_num_tokens: !ref <input_num_tokens>
