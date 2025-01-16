@@ -63,7 +63,12 @@ token_model_src: !apply:speechbrain.utils.hparams.choice
 g2p_src: flexthink/soundchoice-g2p
 kmeans_cache_dir: !ref <save_folder>/kmeans_checkpoint
 kmeans_dataset: LibriSpeech
-vocoder_repo_id: speechbrain/hifigan-wavlm-k1000-LibriTTS
+vocoder_repo_id: !apply:speechbrain.utils.hparams.choice
+  value: !ref <ssl_model_type>
+  choices:
+    hubert: speechbrain/hifigan-hubert-k1000-LibriTTS
+    wavlm: speechbrain/hifigan-wavlm-k1000-LibriTTS
+    wav2vec2: speechbrain/hifigan-wav2vec2-k1000-LibriTTS
 ssl_model_layers: [1, 3, 7, 12, 18, 23]
 token_model_layers: !ref <ssl_model_layers>
 select_layers: null
