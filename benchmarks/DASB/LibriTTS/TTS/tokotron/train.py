@@ -34,6 +34,8 @@ from evaluate import TokotronEvaluator
 import re
 import string
 
+base_dir = str(Path(__file__).parent.parent.parent.parent)
+sys.path.append(base_dir)
 
 logger = logging.getLogger(__name__)
 

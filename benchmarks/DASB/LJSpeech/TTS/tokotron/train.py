@@ -31,6 +31,9 @@ from Tokotron import (
 from Tokotron import RepresentationMode
 from evaluate import TokotronEvaluator
 
+base_dir = str(Path(__file__).parent.parent.parent.parent)
+sys.path.append(base_dir)
+
 
 logger = logging.getLogger(__name__)
 
