@@ -48,3 +48,7 @@ eval_summary:
     descriptive: ["wer", "cer", "wer_ref", "cer_ref", "dwer", "dcer"]
   utmos:
     descriptive: ["utmos"]
+
+eval_summary_log:
+  utmos: utmos_utmos_mean
+  dwer: asr_dwer_median

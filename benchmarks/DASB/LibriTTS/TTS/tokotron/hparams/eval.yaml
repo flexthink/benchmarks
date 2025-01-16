@@ -63,3 +63,8 @@ eval_summary:
     descriptive: ["utmos"]
   spk_sim:
     descriptive: ["score"]
+
+eval_summary_log:
+  utmos: utmos_utmos_mean
+  dwer: asr_dwer_median
+  spk_sim: spk_sim_score_mean

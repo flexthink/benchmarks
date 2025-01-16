@@ -22,18 +22,19 @@ import re
 import string
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
+from speechbrain.dataio.dataio import clean_padding_
 from speechbrain.utils.distributed import run_on_main
-from Tokotron import (
+
+base_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
+sys.path.append(base_dir)
+
+from model.Tokotron import (
     get_silence_token,
     use_silence_padding,
     feature_pad_to,
-)
-from Tokotron import RepresentationMode
-from evaluate import TokotronEvaluator
-
-base_dir = str(Path(__file__).parent.parent.parent.parent)
-sys.path.append(base_dir)
-
+    RepresentationMode,
+)  # noqa: E402
+from evaluate import TokotronEvaluator  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +269,16 @@ class TokotronBrain(sb.Brain):
         stage_stats = {"loss": stage_loss, **loss_stats}
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
+        
+        # End evaluation and report stats
+        if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
+            self.evaluator.on_evaluate_end()
+            eval_summary = self.evaluator.compute_summary()
+            eval_summary_stats = {
+                key: eval_summary.get(value)
+                for key, value in self.hparams.eval_summary_log.items()
+            }
+            stage_stats.update(eval_summary_stats)
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
@@ -291,9 +302,6 @@ class TokotronBrain(sb.Brain):
             self.checkpointer.save_and_keep_only(
                 meta={"loss": stage_stats["loss"]}, min_keys=["loss"],
             )
-
-        if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
-            self.evaluator.on_evaluate_end()
 
     def fit_batch(self, batch):
         """Fit one batch, override to do multiple updates.
@@ -363,7 +371,9 @@ class TokotronBrain(sb.Brain):
         -------
         wav : torch.Tensor
         """
-        raise NotImplementedError()
+        wav = self.modules.tokenizer.tokens_to_sig(audio)
+        clean_padding_(wav, length)
+        return wav
 
     def is_eval_epoch(self, epoch):
         """Determines whether or not evaluation should be performed
@@ -686,15 +696,7 @@ RE_PUNCTUATION = re.compile(
 )
 
 
-def run_experiment(brain_cls):
-    """Starts the experiement
-
-    Arguments
-    ---------
-    brain_cls : type
-        The brain class to instantiate
-    """
-
+if __name__ == "__main__":
     # Reading command line arguments
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
 
@@ -757,7 +759,7 @@ def run_experiment(brain_cls):
     audio_keys = ["audio_pad", "audio_bos"]
 
     # Trainer initialization
-    tts_brain = brain_cls(
+    tts_brain = TokotronBrain(
         modules=hparams["modules"],
         opt_class=hparams["opt_class"],
         hparams=hparams,

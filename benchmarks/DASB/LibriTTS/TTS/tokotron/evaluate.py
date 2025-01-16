@@ -124,41 +124,19 @@ class TokotronEvaluator:
             output_folder = output_folder / str(epoch)
         output_folder.mkdir(parents=True, exist_ok=True)
         return output_folder
-
-    def evaluate(self, dataset):
-        """Runs evaluation on a dataset
+    
+    def on_evaluate_end(self):
+        """Invoked when evaluation starts
 
         Arguments
         ---------
-        dataset : speechbrain.dataio.dataset.DynamicItemDataset
-            a dataset
+
+        stage : sb.Stage
+            One of sb.Stage.TRAIN, sb.Stage.VALID, or sb.Stage.TEST.
+        epoch : int
+            The currently-starting epoch. This is passed
+            `None` during the test stage.
         """
-        logger.info("Recovering the checkpoint")
-        ckpt = self.hparams.checkpointer.recover_if_possible()
-        if not ckpt:
-            raise ValueError("Unable to recover the checkpoint")
-        self.modules.model.eval()
-        if self.hparams.eval_samples is not None:
-            dataset = dataset.filtered_sorted(
-                select_n=self.hparams.eval_samples
-            )
-        loader = sb.dataio.dataloader.make_dataloader(
-            dataset, batch_size=self.hparams.batch_size
-        )
-        loader_it = iter(loader)
-        self.create_reports()
-        self.modules.model.show_inference_progress = False
-        self.item_ids = []
-        details_keys = list(self.evaluators.keys())
-        self.details = {evaluator_key: [] for evaluator_key in details_keys}
-        self.read_reports()
-        self.sample_text = []
-        self.sample_file_names = []
-        self.ref_file_names = []
-        logger.info("Starting evaluation")
-        batch_count = math.ceil(len(dataset) / self.hparams.batch_size)
-        for batch in tqdm(loader_it, desc="Evaluation", total=batch_count):
-            self.evaluate_batch(batch)
         self.write_summary()
         logger.info("Evaluation done")
 

@@ -22,20 +22,21 @@ from functools import partial
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.dataio.dataset import FilteredSortedDynamicItemDataset
+from speechbrain.dataio.dataio import clean_padding_
 from speechbrain.utils.distributed import run_on_main
-from Tokotron import (
+import re
+import string
+
+base_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
+sys.path.append(base_dir)
+
+from model.Tokotron import (
     RepresentationMode,
     get_silence_token,
     use_silence_padding,
     feature_pad_to,
-)
-from types import SimpleNamespace
-from evaluate import TokotronEvaluator
-import re
-import string
-
-base_dir = str(Path(__file__).parent.parent.parent.parent)
-sys.path.append(base_dir)
+)  # noqa: E402
+from evaluate import TokotronEvaluator  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,9 @@ class TokotronBrain(sb.Brain):
         -------
         wav : torch.Tensor
         """
-        raise NotImplementedError()
+        wav = self.modules.tokenizer.tokens_to_sig(audio)
+        clean_padding_(wav, length)
+        return wav
 
     def compute_forward(self, batch, stage):
         """Runs all the computation of the Tokotron TTS
@@ -451,6 +454,16 @@ class TokotronBrain(sb.Brain):
         stage_stats = {"loss": stage_loss, **loss_stats}
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
+        
+        # End evaluation and report stats
+        if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
+            self.evaluator.on_evaluate_end()
+            eval_summary = self.evaluator.compute_summary()
+            eval_summary_stats = {
+                key: eval_summary.get(value)
+                for key, value in self.hparams.eval_summary_log.items()
+            }
+            stage_stats.update(eval_summary_stats)
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
@@ -473,9 +486,6 @@ class TokotronBrain(sb.Brain):
                 meta={"loss": stage_stats["loss"]}, min_keys=["loss"],
             )
 
-        if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
-            self.evaluator.on_evaluate_end()
-
     def fit_batch(self, batch):
         loss = super().fit_batch(batch)
         if self.hparams.lr_annealing_mode == "step":
@@ -486,7 +496,7 @@ class TokotronBrain(sb.Brain):
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phn"}
 
 
-def dataio_prepare(hparams, guide_ctx=None):
+def dataio_prepare(hparams):
     """This function prepares the datasets to be used in the brain class.
     It also defines the data processing pipeline through user-defined functions.
 
@@ -496,9 +506,6 @@ def dataio_prepare(hparams, guide_ctx=None):
     hparams : dict
         This dictionary is loaded from the `train.yaml` file, and it includes
         all the hyperparameters needed for dataset construction and loading.
-
-    guide_ctx : SimpleNamespace, optional
-        The guide context with pretrained models
 
     Returns
     -------
@@ -557,12 +564,6 @@ def dataio_prepare(hparams, guide_ctx=None):
     def tokens_pipeline(label):
         """Processes the transcriptions to generate proper labels"""
         return label_encoder.encode_sequence_torch(label)
-
-    @sb.utils.data_pipeline.takes("label_norm")
-    @sb.utils.data_pipeline.provides("asr_tokens")
-    def asr_tokens_pipeline(label):
-        """Processes the transcriptions to generate proper labels"""
-        return torch.tensor(guide_ctx.asr_model.encode(label))
 
     use_silence_padding = hparams.get("use_silence_padding", True)
     if "token_model_layers" in hparams:
@@ -936,50 +937,12 @@ def apply_overfit_test(hparams, dataset):
     return result
 
 
-def get_guide_ctx(hparams, run_opts):
-    """Initializes a context object for guides,
-    containing pretrained models only for guides that will be
-    used per hparams
-
-    Arguments
-    ---------
-    hparams : dict
-        Hyperparameters
-    run_opts : dict
-        Run options
-
-    Returns
-    -------
-    ctx : SimpleNamespace
-        The resulting context"""
-    ctx = {}
-    if hparams["guides_enabled"]:
-        pretrained_run_opts = {"device": run_opts.get("device", "cpu")}
-        if hparams["guides_spk"]:
-            ctx["spk_emb_model"] = hparams["spk_emb_model"](
-                run_opts=pretrained_run_opts
-            )
-        if hparams["guides_asr"]:
-            ctx["asr_model"] = hparams["asr_model"](
-                run_opts=pretrained_run_opts
-            )
-    return SimpleNamespace(**ctx)
-
-
 RE_PUNCTUATION = re.compile(
     "|".join(re.escape(char) for char in string.punctuation)
 )
 
 
-def run_experiment(brain_cls):
-    """Starts the experiement
-
-    Arguments
-    ---------
-    brain_cls : type
-        The brain class to instantiate
-    """
-
+if __name__ == "__main__":
     # Reading command line arguments
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
 
@@ -1042,9 +1005,8 @@ def run_experiment(brain_cls):
         )
 
     # We can now directly create the datasets for training, valid, and test
-    guide_ctx = get_guide_ctx(hparams, run_opts)
     (datasets, silence_padding, resample_fn) = dataio_prepare(
-        hparams, guide_ctx
+        hparams
     )
 
     # Apply overfit test settings
@@ -1052,7 +1014,7 @@ def run_experiment(brain_cls):
     audio_keys = ["audio_pad", "audio_bos"]
 
     # Trainer initialization
-    tts_brain = brain_cls(
+    tts_brain = TokotronBrain(
         modules=hparams["modules"],
         opt_class=hparams["opt_class"],
         hparams=hparams,
