@@ -9,6 +9,7 @@ __set_seed: !apply:torch.manual_seed [!ref <seed>]
 output_folder: !ref results/transformer/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
+testing: True # If set to True, the test evlaution is done, otherwise skipped.
 
 # Data files
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
@@ -55,7 +56,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 input: text
 number_of_epochs: 1000
 reset_annealing_epoch: null
-batch_size: 16
+batch_size: 16 @orion_step1: --enc_num_layers~"uniform(2, 32,discrete=True)
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
 max_grad_norm: 0.01
@@ -76,7 +77,7 @@ eos_width: 1
 audio_token_shift: 0
 
 # stages related parameters
-lr: 0.0005
+lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.5)"
 lr_warmup_steps: 10000
 lr_annealing_mode: step
 guided_attention_weight: 50.0
@@ -187,8 +188,8 @@ extract_features_opts:
 # Transformer
 d_model: 512
 nhead: 4
-enc_num_layers: 6
-dec_num_layers: 12
+enc_num_layers: 6 # @orion_step1: --enc_num_layers~"uniform(2, 12,discrete=True)"
+dec_num_layers: 12 # @orion_step1: --dec_num_layers~"uniform(2, 12,discrete=True)"
 d_ffn: 2048
 z_dim: 128
 hidden_dim: 2048

@@ -7,6 +7,7 @@ experiment_name: tokotron/discrete_ssl
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 74443
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
+run_name: !PLACEHOLDER
 
 # Model Type
 ssl_model_type: wavlm
@@ -14,10 +15,13 @@ representation_mode: discrete
 output_folder: !ref results/tokotron/<experiment_name>/<ssl_model_type>/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
+testing: True # If set to True, the test evlaution is done, otherwise skipped.
+
 
 # Data files
 data_folder: !PLACEHOLDER
-prepare_save_folder: !ref <data_folder>/prepared/discrete-<ssl_model_type> # e.g., /path/to/LibriSpeech
+cached_data_folder: !PLACEHOLDER
+prepare_save_folder: !ref <cached_data_folder>
 pretrained_model_save_folder: !ref <prepare_save_folder>
 vocoder_model_name: !ref unithifigan-dasb-<ssl_model_type>-discrete
 vocoder_model_path: !ref <pretrained_model_save_folder>/<vocoder_model_name>
@@ -86,7 +90,7 @@ eos_width: 1
 audio_token_shift: 0
 
 # stages related parameters
-lr: 0.0005
+lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.5)"
 lr_warmup_steps: 10000
 lr_annealing_mode: step
 guided_attention_weight: 50.0
@@ -111,8 +115,8 @@ debug_infer_max_audio_length: 10
 
 # Label encoder
 label_encoder: !new:speechbrain.dataio.encoder.TextEncoder
-token_list_file_text: ./hparams/char_en.txt
-token_list_file_phn: ./hparams/arpabet.txt
+token_list_file_text: char_en.txt
+token_list_file_phn: arpabet.txt
 token_list_file: !apply:speechbrain.utils.hparams.choice
     value: !ref <input>
     choices:
@@ -183,8 +187,8 @@ token_model_kwargs:
 # Transformer
 d_model: 512
 nhead: 4
-enc_num_layers: 6
-dec_num_layers: 12
+enc_num_layers: 6 # @orion_step1: --enc_num_layers~"uniform(2, 12,discrete=True)"
+dec_num_layers: 12 # @orion_step1: --dec_num_layers~"uniform(2, 12,discrete=True)"
 d_ffn: 2048
 transformer_dropout: 0.2
 target_dropout: 0.2

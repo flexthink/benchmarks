@@ -454,7 +454,7 @@ class TokotronBrain(sb.Brain):
         stage_stats = {"loss": stage_loss, **loss_stats}
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
-        
+
         # End evaluation and report stats
         if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
             self.evaluator.on_evaluate_end()
@@ -1005,9 +1005,7 @@ if __name__ == "__main__":
         )
 
     # We can now directly create the datasets for training, valid, and test
-    (datasets, silence_padding, resample_fn) = dataio_prepare(
-        hparams
-    )
+    (datasets, silence_padding, resample_fn) = dataio_prepare(hparams)
 
     # Apply overfit test settings
     datasets = apply_overfit_test(hparams, datasets)
@@ -1041,9 +1039,10 @@ if __name__ == "__main__":
     )
 
     # Load best checkpoint for evaluation
-    tts_brain.evaluate(
-        test_set=datasets["test"],
-        test_loader_kwargs=use_silence_padding(
-            hparams["test_dataloader_opts"], silence_padding, audio_keys
-        ),
-    )
+    if hparams["testing"]:
+        tts_brain.evaluate(
+            test_set=datasets["test"],
+            test_loader_kwargs=use_silence_padding(
+                hparams["test_dataloader_opts"], silence_padding, audio_keys
+            ),
+        )

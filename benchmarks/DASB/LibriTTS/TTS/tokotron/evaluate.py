@@ -124,7 +124,7 @@ class TokotronEvaluator:
             output_folder = output_folder / str(epoch)
         output_folder.mkdir(parents=True, exist_ok=True)
         return output_folder
-    
+
     def on_evaluate_end(self):
         """Invoked when evaluation starts
 

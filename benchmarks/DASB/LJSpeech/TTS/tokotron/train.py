@@ -269,7 +269,7 @@ class TokotronBrain(sb.Brain):
         stage_stats = {"loss": stage_loss, **loss_stats}
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
-        
+
         # End evaluation and report stats
         if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
             self.evaluator.on_evaluate_end()
@@ -623,7 +623,10 @@ def read_token_list(file_name):
     result: list
         a list of tokens
     """
-    if not Path(file_name).exists():
+    file_name = Path(file_name)
+    if not file_name.is_absolute():
+        file_name = Path(__file__).parent / "hparams" / file_name
+    if not file_name.exists():
         raise ValueError(f"Token file {file_name} not found")
     with open(file_name) as token_file:
         return [line.strip("\r\n") for line in token_file if line]
@@ -709,6 +712,8 @@ if __name__ == "__main__":
 
     # Load evaluation hyperparameters
     eval_hparams_file = Path(hparams_file).parent / "eval.yaml"
+    if not eval_hparams_file.exists():
+        eval_hparams_file = Path(__file__).parent / "hparams" / "eval.yaml"
     if eval_hparams_file.exists():
         logger.info(
             "Using evaluation hyperparameters from %s", eval_hparams_file
@@ -796,9 +801,10 @@ if __name__ == "__main__":
     )
 
     # Load best checkpoint for evaluation
-    tts_brain.evaluate(
-        test_set=datasets["test"], test_loader_kwargs=test_dataloader_opts,
-    )
+    if hparams["testing"]:
+        tts_brain.evaluate(
+            test_set=datasets["test"], test_loader_kwargs=test_dataloader_opts,
+        )
 
     # Save final checkpoint (fixed name)
     tts_brain.checkpointer.save_checkpoint(name="latest")
