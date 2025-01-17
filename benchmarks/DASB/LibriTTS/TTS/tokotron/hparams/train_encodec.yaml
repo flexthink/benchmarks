@@ -67,7 +67,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 input: text
 number_of_epochs: 1000
 reset_annealing_epoch: null
-batch_size: 16
+batch_size: 16 # @orion_step1: --batch_size~"uniform(2, 16,discrete=True)"
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
 max_grad_norm: 0.01

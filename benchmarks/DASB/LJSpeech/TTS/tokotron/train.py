@@ -371,6 +371,10 @@ class TokotronBrain(sb.Brain):
         -------
         wav : torch.Tensor
         """
+        self.modules.tokenizer.device = self.device        
+        if hasattr(self.modules.tokenizer, "codec_vocoder"):
+            self.modules.tokenizer.codec_vocoder.to(self.device)
+            self.codec_vocoder.device = self.device
         wav = self.modules.tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         return wav
