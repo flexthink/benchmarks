@@ -34,7 +34,6 @@ test_json: !ref <prepare_save_folder>/test.json
 frozen_split_path: null
 sample_path: null
 progress_folder: !ref <output_folder>/progress
-progress_archive: !ref <progress_folder>/progress.tar
 progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
@@ -211,7 +210,7 @@ modules:
 opt_class: !name:torch.optim.Adam
     lr: !ref <lr>
 
-compute_cost: !new:model.Tokotron.Tokotron.oss
+compute_cost: !new:model.Tokotron.TokotronLoss
     guided_attention_weight: !ref <guided_attention_weight>
     guided_attention_sigma: !ref <guided_attention_sigma>
     gate_weight: !ref <gate_loss_weight>
