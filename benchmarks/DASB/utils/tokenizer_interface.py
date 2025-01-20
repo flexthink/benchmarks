@@ -380,6 +380,7 @@ class MimiTokenizer(Mimi, BaseTokenizer):
     def __init__(self, *args, **kwargs):
         Mimi.__init__(self, *args, **kwargs)
         BaseTokenizer.__init__(self)
+        self.sample_rate= self.sampling_rate
 
     @torch.no_grad()
     def sig_to_tokens(self, signal, lengths=None, num_codebooks=None, **kwargs):
@@ -435,6 +436,7 @@ class WavTokenizerWrapper(WavTokenizer, BaseTokenizer):
     def __init__(self, *args, **kwargs):
         WavTokenizer.__init__(self, *args, **kwargs)
         BaseTokenizer.__init__(self)
+        self.sample_rate = 24000
 
     @torch.no_grad()
     def sig_to_tokens(self, signal, lengths=None, num_codebooks=None, **kwargs):
