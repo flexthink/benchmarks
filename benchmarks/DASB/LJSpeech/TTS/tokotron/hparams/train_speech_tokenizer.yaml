@@ -34,7 +34,6 @@ test_json: !ref <prepare_save_folder>/test.json
 frozen_split_path: null
 sample_path: null
 progress_folder: !ref <output_folder>/progress
-progress_archive: !ref <progress_folder>/progress.tar
 progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
@@ -187,7 +186,7 @@ model: !new:model.Tokotron.TokotronTransformerModel  # yamllint disable-line rul
     max_audio_length: !ref <max_audio_length>
     infer_max_audio_length: !ref <infer_max_audio_length>
 
-tokenizer: !new:utils.tokenizer_interface.SpeechTokenizer
+tokenizer: !new:utils.tokenizer_interface.SpeechTokenizerWrapper
     source: fnlp/SpeechTokenizer  # Only the 24kHz version supports mono audio
     save_path: !ref <save_folder>
 
