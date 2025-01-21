@@ -37,10 +37,10 @@ config: config.yaml
 checkpoint: ckpt_00190000.pth
 sample_rate: 16000
 save_embedding: False
-num_codebooks : 4
+num_codebooks: 4
 save_path: /home/ubuntu/sq-codec/SQ-Codec
 
-# wavtokenizer model 
+# wavtokenizer model
 tokenizer: !new:utils.tokenizer_interface.SQCodecTokenizer
   save_path: !ref <save_path>
   checkpoint: !ref <checkpoint>

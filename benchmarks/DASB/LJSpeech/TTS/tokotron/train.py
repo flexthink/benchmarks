@@ -123,10 +123,11 @@ class TokotronBrain(sb.Brain):
             if self.audio_token_offsets is not None:
                 audio_bos = torch.cat(
                     [
-                        audio_bos[:, :self.hparams.bos_width],
-                        audio_bos[:, self.hparams.bos_width:] - self.audio_token_offsets,
+                        audio_bos[:, : self.hparams.bos_width],
+                        audio_bos[:, self.hparams.bos_width :]
+                        - self.audio_token_offsets,
                     ],
-                    dim=1
+                    dim=1,
                 )
                 clean_padding_(audio_bos, audio_bos_length)
                 audio_tgt = audio_tgt - self.audio_token_offsets
@@ -151,10 +152,12 @@ class TokotronBrain(sb.Brain):
         """Computes token offsets for tokenizers that require them"""
         token_offsets = None
         if self.hparams.audio_token_offsets:
-            token_offsets = (torch.arange(
-                self.hparams.audio_tokens_per_step,
-                device=self.device
-            ) * self.hparams.audio_num_tokens)[None, None, :]
+            token_offsets = (
+                torch.arange(
+                    self.hparams.audio_tokens_per_step, device=self.device
+                )
+                * self.hparams.audio_num_tokens
+            )[None, None, :]
         return token_offsets
 
     @torch.no_grad()
@@ -270,7 +273,7 @@ class TokotronBrain(sb.Brain):
         elif stage == sb.Stage.TEST:
             self.evaluator.on_evaluate_start(stage, epoch)
             self.is_evaluating = True
-        
+
         self.audio_token_offsets = self.get_token_offsets()
 
     def on_stage_end(self, stage, stage_loss, epoch):
@@ -325,7 +328,7 @@ class TokotronBrain(sb.Brain):
     def get_summary_stats(self):
         """Retrieves the stats that needs to be reported on every trial
         in the train log, as indicated in eval_summary_log in eval.yaml
-        
+
         Returns
         -------
         eval_summary_stats : dict
@@ -337,7 +340,7 @@ class TokotronBrain(sb.Brain):
         }
         self._check_threshold(eval_summary_stats)
         return eval_summary_stats
-    
+
     def _check_threshold(self, eval_summary_stats):
         """Checks threshold values for the defined stats and terminates
         the trials if the parameters are not met. This is necessary because
@@ -361,7 +364,9 @@ class TokotronBrain(sb.Brain):
             elif threshold_type == "max":
                 meets = value <= threshold_value
             else:
-                raise ValueError(f"Invalid threshold definition: {key}, check eval_threshold")
+                raise ValueError(
+                    f"Invalid threshold definition: {key}, check eval_threshold"
+                )
             if not meets:
                 eval_summary_stats["broken"] = True
                 for key, value in self.hparams.eval_threshold_set.items():
@@ -556,8 +561,7 @@ def dataio_prepare(hparams):
         and representation_mode == RepresentationMode.DISCRETE
     ):
         silence_token = get_silence_token(
-            hparams[model_key],
-            model_kwargs=hparams.get("token_model_kwargs"),
+            hparams[model_key], model_kwargs=hparams.get("token_model_kwargs"),
         )
         if silence_token.dim() == 2:
             silence_token = silence_token.squeeze(-1)

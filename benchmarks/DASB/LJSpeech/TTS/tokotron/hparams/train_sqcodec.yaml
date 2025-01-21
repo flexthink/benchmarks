@@ -189,9 +189,9 @@ model: !new:model.Tokotron.TokotronTransformerModel  # yamllint disable-line rul
     infer_max_audio_length: !ref <infer_max_audio_length>
 
 tokenizer: !new:utils.tokenizer_interface.SQCodecTokenizer
-  save_path: !ref <sq_codec_save_path>
-  checkpoint: !ref <checkpoint>
-  config: !ref <config>
+    save_path: !ref <sq_codec_save_path>
+    checkpoint: !ref <checkpoint>
+    config: !ref <config>
 
 modules:
     model: !ref <model>

@@ -85,7 +85,7 @@ class TokotronBrain(sb.Brain):
         -------
         wav : torch.Tensor
         """
-        self.modules.tokenizer.device = self.device        
+        self.modules.tokenizer.device = self.device
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device
@@ -582,9 +582,7 @@ def dataio_prepare(hparams):
                 model_kwargs=hparams.get("token_model_kwargs"),
             )
         else:
-            silence_padding = get_silence_repr(
-                hparams["ssl_model"],
-            )
+            silence_padding = get_silence_repr(hparams["ssl_model"],)
     else:
         silence_padding = (
             torch.ones(audio_tokens_per_step, dtype=torch.int64)

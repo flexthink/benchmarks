@@ -12,7 +12,6 @@ Authors
 
 import math
 import torch
-import inspect
 from torch import nn
 from torch.nn import functional as F
 from speechbrain.lobes.models.transformer.Transformer import (
@@ -2127,7 +2126,7 @@ def get_silence_repr(model, sample_length=100000, device=None):
         A silecnce tensor
     """
     audio = torch.zeros(1, sample_length, device=device)
-    length = torch.ones(1, device=device)    
+    length = torch.ones(1, device=device)
     audio_repr = model(audio, length)
     silence = audio_repr.mean(dim=1)[0]
     return silence

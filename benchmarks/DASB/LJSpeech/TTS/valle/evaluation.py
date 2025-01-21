@@ -240,8 +240,7 @@ class SpeechEvaluationMetricStats(MetricStats):
                 "descriptive"
             ]
             for stat_key, value in descriptive_statistics(
-                items=self.details[evaluator_key],
-                key=metric_key,
+                items=self.details[evaluator_key], key=metric_key,
             ).items()
         }
         if field is not None:

@@ -20,8 +20,11 @@ import sys
 import shutil
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
-from speechbrain.dataio.dataio import clean_padding_, length_to_mask, write_audio
-from speechbrain.dataio.dataio import write_audio
+from speechbrain.dataio.dataio import (
+    clean_padding_,
+    length_to_mask,
+    write_audio,
+)
 from speechbrain.utils.distributed import run_on_main
 from speechbrain.utils.data_utils import batch_pad_right
 import re
@@ -30,7 +33,7 @@ import string
 base_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
 sys.path.append(base_dir)
 
-from evaluation import SpeechEvaluationMetricStats
+from evaluation import SpeechEvaluationMetricStats  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ class VALLEBrain(sb.Brain):
         self.evaluation_metric = SpeechEvaluationMetricStats(
             self.hparams, self.device
         )
-            
+
     def create_waveform(self, audio, length):
         """Creates a waveform from a discrete or continuous audio
         representation
@@ -75,7 +78,11 @@ class VALLEBrain(sb.Brain):
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device
-        audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(min=0.).int()
+        audio = (
+            (audio - hparams["audio_token_shift"] - self.offsets)
+            .clip(min=0.0)
+            .int()
+        )
         wav = self.modules.tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         return wav
@@ -99,14 +106,13 @@ class VALLEBrain(sb.Brain):
         prompt, prompt_length = batch.prompt
         batch_size, prompt_max_len, num_tracks = prompt.shape
         nar_track = torch.randint(
-            1, num_tracks, (batch_size,),
-            device=self.device
+            1, num_tracks, (batch_size,), device=self.device
         )
         logits_ar, logits_nar = self.modules.model(
             dec_seq=batch.prompt.data,
             dec_seq_lengths=batch.prompt.lengths,
             prefix_len=batch.prefix_length / prompt_max_len,
-            nar_level_idx=nar_track
+            nar_level_idx=nar_track,
         )
         return logits_ar, logits_nar, nar_track
 
@@ -142,14 +148,16 @@ class VALLEBrain(sb.Brain):
         batch_idx = torch.arange(batch_size, device=prompt.device)
         targets_nar = prompt[batch_idx, 1:, nar_track]
         prompt_max_len = prompt.size(1)
-        length_mask = length_to_mask(prompt_length * prompt_max_len, prompt_max_len)
-        prefix_mask = length_to_mask(prefix_length, prompt_max_len).logical_not()
+        length_mask = length_to_mask(
+            prompt_length * prompt_max_len, prompt_max_len
+        )
+        prefix_mask = length_to_mask(
+            prefix_length, prompt_max_len
+        ).logical_not()
         mask = (length_mask * prefix_mask)[:, 1:]
 
         loss_ar = self.hparams.compute_cost(
-            log_probabilities=logits_ar_sm,
-            targets=targets_ar,
-            mask=mask
+            log_probabilities=logits_ar_sm, targets=targets_ar, mask=mask
         )
         self.loss_metric_ar.append(
             ids=batch.uttid,
@@ -159,9 +167,7 @@ class VALLEBrain(sb.Brain):
             reduction="batch",
         )
         loss_nar = self.hparams.compute_cost(
-            log_probabilities=logits_nar_sm,
-            targets=targets_nar,
-            mask=mask,
+            log_probabilities=logits_nar_sm, targets=targets_nar, mask=mask,
         )
         self.loss_metric_nar.append(
             ids=batch.uttid,
@@ -185,20 +191,17 @@ class VALLEBrain(sb.Brain):
             `None` during the test stage.
         """
         self.offsets = get_offsets(
-            self.hparams.vocab_size,
-            self.hparams.audio_tokens_per_step,
+            self.hparams.vocab_size, self.hparams.audio_tokens_per_step,
         )[None, None, :].to(self.device)
 
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
             metric=self.hparams.compute_cost, batch_eval=True,
         )
         self.loss_metric_ar = sb.utils.metric_stats.MetricStats(
-            metric=self.hparams.compute_cost,
-            batch_eval=True,
+            metric=self.hparams.compute_cost, batch_eval=True,
         )
         self.loss_metric_nar = sb.utils.metric_stats.MetricStats(
-            metric=self.hparams.compute_cost,
-            batch_eval=True,
+            metric=self.hparams.compute_cost, batch_eval=True,
         )
 
         # TOOO: Reestablish evaluation
@@ -288,10 +291,7 @@ class VALLEBrain(sb.Brain):
                 wav = self.create_waveform(audio_tokens, audio_length)
                 wav = wav.squeeze(1)
                 self.save_samples(
-                    batch=batch,
-                    wav=wav,
-                    length=audio_length,
-                    stage=stage
+                    batch=batch, wav=wav, length=audio_length, stage=stage
                 )
                 self.evaluation_metric.append(
                     ids=batch.uttid,
@@ -375,13 +375,14 @@ class VALLEBrain(sb.Brain):
         prefix_items = undo_padding_tensor(prefix.int(), prefix_length)
         inference_results = [
             self.modules.model.inference(
-                prefix=prefix_item.unsqueeze(0),
-                opts=self._get_inference_opts()
-            )            
+                prefix=prefix_item.unsqueeze(0), opts=self._get_inference_opts()
+            )
             for prefix_item in prefix_items
         ]
         inferred_tokens = [
-            result[0][0] if result[0] else torch.zeros(1000, self.hparams.audio_tokens_per_step)
+            result[0][0]
+            if result[0]
+            else torch.zeros(1000, self.hparams.audio_tokens_per_step)
             for result in inference_results
         ]
         audio, audio_length = batch_pad_right(inferred_tokens)
@@ -389,8 +390,12 @@ class VALLEBrain(sb.Brain):
         return audio, audio_length
 
     def _get_inference_opts(self):
-        idx = torch.arange(self.hparams.model_vocab_size, device=self.device)[None, :]
-        tracks = torch.arange(self.hparams.audio_tokens_per_step, device=self.device)[:, None]
+        idx = torch.arange(self.hparams.model_vocab_size, device=self.device)[
+            None, :
+        ]
+        tracks = torch.arange(
+            self.hparams.audio_tokens_per_step, device=self.device
+        )[:, None]
         track_start = (
             self.hparams.text_num_tokens
             + self.hparams.special_num_tokens
@@ -404,10 +409,7 @@ class VALLEBrain(sb.Brain):
             | (idx == self.hparams.bos_index)
         ).logical_not()
         return self.hparams.inference_opts(
-            masks={
-                self.hparams.bos_index: mask
-            },
-            device=self.device,
+            masks={self.hparams.bos_index: mask}, device=self.device,
         )
 
     def save_samples(self, batch, wav, length, stage):
@@ -435,7 +437,7 @@ class VALLEBrain(sb.Brain):
             Path(self.hparams.output_folder) / "eval" / stage.name.lower()
         )
         if epoch is not None:
-            output_folder = output_folder / str(epoch)        
+            output_folder = output_folder / str(epoch)
         output_folder.mkdir(exist_ok=True, parents=True)
         return output_folder
 
@@ -481,12 +483,11 @@ def dataio_prepare(hparams):
     label_encoder = hparams["label_encoder"]
     input_feature = INPUT_FEATURE_MAP[hparams["input"]]
     offsets = get_offsets(
-        hparams["vocab_size"],
-        hparams["audio_tokens_per_step"]
+        hparams["vocab_size"], hparams["audio_tokens_per_step"]
     ).unsqueeze(0)
     if hparams["flip_layers"]:
         offsets = offsets.flip(-1)
-    
+
     tokens_loader = hparams.get("tokens_loader")
 
     @sb.utils.data_pipeline.takes("label")
@@ -505,7 +506,9 @@ def dataio_prepare(hparams):
         return label_encoder.encode_sequence_torch(label)
 
     @sb.utils.data_pipeline.takes("uttid", "tokens")
-    @sb.utils.data_pipeline.provides("audio", "prefix", "prompt", "prefix_length", "length")
+    @sb.utils.data_pipeline.provides(
+        "audio", "prefix", "prompt", "prefix_length", "length"
+    )
     def prompt_pipeline(id, tokens):
         audio = tokens_loader.tokens_by_uttid(
             id, num_codebooks=hparams["audio_tokens_per_step"]
@@ -553,7 +556,7 @@ def dataio_prepare(hparams):
         "audio",
         "prompt",
         "prefix_length",
-        "length"
+        "length",
     ]
     if use_spk_emb:
         prepared_features.append("spk_emb")

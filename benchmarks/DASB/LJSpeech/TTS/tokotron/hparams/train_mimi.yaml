@@ -186,9 +186,9 @@ model: !new:model.Tokotron.TokotronTransformerModel  # yamllint disable-line rul
     infer_max_audio_length: !ref <infer_max_audio_length>
 
 tokenizer: !new:utils.tokenizer_interface.MimiTokenizer
-  source: !ref <model_hub>
-  save_path: !ref <save_folder>
-  num_codebooks: !ref <audio_tokens_per_step>
+    source: !ref <model_hub>
+    save_path: !ref <save_folder>
+    num_codebooks: !ref <audio_tokens_per_step>
 
 modules:
     model: !ref <model>
