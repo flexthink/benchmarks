@@ -273,11 +273,7 @@ class TokotronBrain(sb.Brain):
         # End evaluation and report stats
         if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
             self.evaluator.on_evaluate_end()
-            eval_summary = self.evaluator.compute_summary()
-            eval_summary_stats = {
-                key: eval_summary.get(value)
-                for key, value in self.hparams.eval_summary_log.items()
-            }
+            eval_summary_stats = self.get_summary_stats()
             stage_stats.update(eval_summary_stats)
 
         # Perform end-of-iteration things, like annealing, logging, etc.
@@ -302,6 +298,51 @@ class TokotronBrain(sb.Brain):
             self.checkpointer.save_and_keep_only(
                 meta={"loss": stage_stats["loss"]}, min_keys=["loss"],
             )
+
+    def get_summary_stats(self):
+        """Retrieves the stats that needs to be reported on every trial
+        in the train log, as indicated in eval_summary_log in eval.yaml
+        
+        Returns
+        -------
+        eval_summary_stats : dict
+            A dict with stats"""
+        eval_summary = self.evaluator.compute_summary()
+        eval_summary_stats = {
+            key: eval_summary.get(value)
+            for key, value in self.hparams.eval_summary_log.items()
+        }
+        self._check_threshold(eval_summary_stats)
+        return eval_summary_stats
+    
+    def _check_threshold(self, eval_summary_stats):
+        """Checks threshold values for the defined stats and terminates
+        the trials if the parameters are not met. This is necessary because
+        some metrics produce bogus high values when the speech samples
+        do not contain any speech at all (e.g. UTMOS can be above 3 for
+        silence).
+
+        Classic usage: dWER > 0.9 - treat the whole run as "garbage", set
+        UTMOS to 0
+
+        Arguments
+        ---------
+        eval_summary_stats : dict
+            Summary statistics
+        """
+        for key, threshold_value in self.hparams.eval_threshold.items():
+            key, threshold_type = key.split("_")
+            value = eval_summary_stats[key]
+            if threshold_type == "min":
+                meets = value >= threshold_value
+            elif threshold_type == "max":
+                meets = value <= threshold_value
+            else:
+                raise ValueError(f"Invalid threshold definition: {key}, check eval_threshold")
+            if not meets:
+                eval_summary_stats["broken"] = True
+                for key, value in self.hparams.eval_threshold_set.items():
+                    eval_summary_stats[key] = value
 
     def fit_batch(self, batch):
         """Fit one batch, override to do multiple updates.
@@ -371,7 +412,7 @@ class TokotronBrain(sb.Brain):
         -------
         wav : torch.Tensor
         """
-        self.modules.tokenizer.device = self.device        
+        self.modules.tokenizer.device = self.device
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device

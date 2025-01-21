@@ -52,3 +52,9 @@ eval_summary:
 eval_summary_log:
   utmos: utmos_utmos_mean
   dwer: asr_dwer_median
+
+eval_threshold:
+  dwer_max: 90.0
+
+eval_threshold_set:
+  utmos: 0.0
