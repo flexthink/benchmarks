@@ -22,7 +22,7 @@ import re
 import string
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
-from speechbrain.dataio.dataio import clean_padding_
+from speechbrain.dataio.dataio import clean_padding, clean_padding_
 from speechbrain.utils.distributed import run_on_main
 
 base_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
@@ -120,6 +120,17 @@ class TokotronBrain(sb.Brain):
         if self.representation_mode == RepresentationMode.DISCRETE:
             audio_bos, audio_bos_length = batch.audio_bos
             audio_tgt, audio_tgt_length = batch.audio_pad
+            if self.audio_token_offsets is not None:
+                audio_bos = torch.cat(
+                    [
+                        audio_bos[:, :self.hparams.bos_width],
+                        audio_bos[:, self.hparams.bos_width:] - self.audio_token_offsets,
+                    ],
+                    dim=1
+                )
+                clean_padding_(audio_bos, audio_bos_length)
+                audio_tgt = audio_tgt - self.audio_token_offsets
+                clean_padding_(audio_tgt, audio_tgt_length)
         else:
             wav, audio_length = batch.sig
             audio = self.modules.ssl_model(wav)
@@ -135,6 +146,16 @@ class TokotronBrain(sb.Brain):
             audio_tgt = audio
             audio_tgt_length = audio_length
         return audio_bos, audio_bos_length, audio_tgt, audio_tgt_length
+
+    def get_token_offsets(self):
+        """Computes token offsets for tokenizers that require them"""
+        token_offsets = None
+        if self.hparams.audio_token_offsets:
+            token_offsets = (torch.arange(
+                self.hparams.audio_tokens_per_step,
+                device=self.device
+            ) * self.hparams.audio_num_tokens)[None, None, :]
+        return token_offsets
 
     @torch.no_grad()
     def evaluate_batch(self, batch, stage):
@@ -249,6 +270,8 @@ class TokotronBrain(sb.Brain):
         elif stage == sb.Stage.TEST:
             self.evaluator.on_evaluate_start(stage, epoch)
             self.is_evaluating = True
+        
+        self.audio_token_offsets = self.get_token_offsets()
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.
@@ -416,8 +439,11 @@ class TokotronBrain(sb.Brain):
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device
-        wav = self.modules.tokenizer.tokens_to_sig(audio)
-        clean_padding_(wav, length)
+        with torch.no_grad():
+            if self.audio_token_offsets is not None:
+                audio = clean_padding(audio + self.audio_token_offsets, length)
+            wav = self.modules.tokenizer.tokens_to_sig(audio)
+            wav = clean_padding(wav, length)
         return wav
 
     def is_eval_epoch(self, epoch):
@@ -529,13 +555,12 @@ def dataio_prepare(hparams):
         use_silence_padding
         and representation_mode == RepresentationMode.DISCRETE
     ):
-        silence_token, _ = get_silence_token(
+        silence_token = get_silence_token(
             hparams[model_key],
             model_kwargs=hparams.get("token_model_kwargs"),
-            extract_emb=False,
-            model_shape=hparams.get("model_shape", "BLH"),
-            unsqueeze=hparams.get("model_needs_channel", False),
         )
+        if silence_token.dim() == 2:
+            silence_token = silence_token.squeeze(-1)
     else:
         silence_token = (
             torch.ones(hparams["audio_tokens_per_step"], dtype=torch.int64)

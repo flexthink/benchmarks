@@ -159,6 +159,7 @@ audio_num_tokens: 1024
 audio_emb_size: 1024
 audio_emb_freeze: False
 audio_emb_pretrained: False
+audio_token_offsets: False
 text_num_tokens: 39
 phn_num_tokens: 52
 input_num_tokens: !apply:speechbrain.utils.hparams.choice
@@ -168,8 +169,6 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
         phonemes: !ref <phn_num_tokens>
 audio_tokens_per_step: 2
 bandwidth: 1.5
-model_shape: BHL
-model_needs_channel: True
 attention_type: regularMHA
 
 ############################## models ################################

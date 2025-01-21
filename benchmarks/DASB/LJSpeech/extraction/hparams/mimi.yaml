@@ -1,5 +1,5 @@
 # ############################################################################
-# Auido Tokenizer: Encodec
+# Auido Tokenizer: Mimi
 # Extraction: Librispeech 960h
 # Authors: Jarod Duret 2024
 # ############################################################################
@@ -7,7 +7,7 @@
 
 seed: 1986
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/encodec
+output_folder: !ref results/mimi
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/extraction_log.txt
 
@@ -21,8 +21,7 @@ train_json: !ref <output_folder>/train.json
 valid_json: !ref <output_folder>/valid.json
 test_json: !ref <output_folder>/test.json
 
-
-batch_size: 8
+batch_size: 1
 num_workers: 8
 src_key: wav
 id_key: id
@@ -33,26 +32,21 @@ dataloader_opts:
   shuffle: True
   num_workers: !ref <num_workers>
 
-# EnCodec parameters
-# sample_rate: [24000, 24000, 24000, 24000]
-# vocab_size: [1024, 1024, 1024, 1024]
-# bandwidth: [1.5, 3.0, 6.0, 12.0, 24.0]
-# num_codebooks: [2, 4, 8, 16, 32]
-bandwidth: 24.0
-num_codebooks: 32
+####################### Model parameters ###########################
+# Tokenizer parameters
+model_hub: kyutai/mimi
 vocab_size: 1024
+num_codebooks: 23
 sample_rate: 24000
+# Feature parameters
+encoder_dim: 1024
 save_embedding: False
 
-# EnCodec model (see https://huggingface.co/docs/transformers/v4.31.0/en/model_doc/encodec)
-tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
-  source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
+tokenizer: !new:utils.tokenizer_interface.MimiTokenizer
+  source: !ref <model_hub>
   save_path: !ref <save_folder>
-  sample_rate: !ref <sample_rate>
-  bandwidth: !ref <bandwidth>
-  flat_embeddings: False
-  freeze: True
-  renorm_embeddings: False
+  num_codebooks: !ref <num_codebooks>
+
 
 tokens_extractor: !new:utils.tokens.TokensExtractor
   tokenizer: !ref <tokenizer>

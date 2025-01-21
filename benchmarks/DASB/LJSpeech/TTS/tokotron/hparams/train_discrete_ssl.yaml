@@ -197,6 +197,7 @@ vocab_size: 1000
 audio_emb_size: 1024
 audio_emb_freeze: False
 audio_emb_pretrained: False
+audio_token_offsets: False
 audio_emb_lr: 0.00001
 audio_emb_weight_decay: 0.001
 text_num_tokens: 39

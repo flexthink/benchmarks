@@ -12,7 +12,7 @@ save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/extraction_log.txt
 
 # Data files
-data_folder: !PLACEHOLDER  # e.g., /path/to/LibriSpeech
+data_folder: !PLACEHOLDER  # e.g., /path/to/LJSpeech
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
 frozen_split_path: null

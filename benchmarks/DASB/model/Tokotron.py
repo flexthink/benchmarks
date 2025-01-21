@@ -2059,8 +2059,6 @@ class SpeechTokenizerFeatureExtractor(nn.Module):
 def get_silence_token(
     model,
     sample_length=100000,
-    extract_emb=True,
-    model_shape="BLH",
     unsqueeze=False,
     device=None,
     model_kwargs=None,
@@ -2074,13 +2072,6 @@ def get_silence_token(
         A discrete token model, taking (wav, lengths) as arguments
     sample_length : int
         The length of the sample
-    extract_emb : bool
-        Whether to extract embeddings
-    model_shape : str
-        The shape of tokens output by the model
-        BLH: Batch x Length x Heads (Discrete SSL, Encodec)
-        BHL: Batch x Heads x Length (DAC)
-        HBL: Heads x Batch x Length (SpeechTokenizer)
     unsqueeze: bool
         Whether to add an extra dimension to the audio (needed for DAC)
     device : str | torch.Device
@@ -2108,43 +2099,38 @@ def get_silence_token(
     length = torch.ones(1, device=device)
     model_training = model.training
     model.eval()
-    if hasattr(model, "encode"):
-        spec = inspect.getfullargspec(model.encode)
-        if "length" in spec.args:
-            result = model.encode(audio, length, **model_kwargs)
-        else:
-            result = model.encode(audio, **model_kwargs)
-    else:
-        result = model(audio, length, **model_kwargs)
+    tokens = model.sig_to_tokens(audio, length)
     if model_training:
         model.train()
-    tokens = result if torch.is_tensor(result) else result[0]
-    if model_shape == "HBL":
-        tokens = tokens.permute(1, 2, 0)
-    elif model_shape == "BHL":
-        tokens = tokens.transpose(-1, -2)
-
     tokens = tokens.squeeze(0)
     if unsqueeze:
         tokens = tokens.squeeze(0)
     silence_tokens = tokens.mode(0).values
-    silence_emb = None
-    if extract_emb:
-        if hasattr(model, "embeddings"):
-            silence_emb = model.embeddings(
-                silence_tokens[None, None, :]
-            ).squeeze()
-        else:
-            heads = tokens.shape[-1]
-            embs = result[1]
-            mode_idx = [
-                (tokens[:, head] == silence_tokens[head]).nonzero()[0].item()
-                for head in range(heads)
-            ]
-            silence_emb = torch.stack(
-                [embs[0, idx, head] for head, idx in enumerate(mode_idx)]
-            )
-    return silence_tokens, silence_emb
+    return silence_tokens
+
+
+def get_silence_repr(model, sample_length=100000, device=None):
+    """Gets continuous silence
+
+    Arguments
+    ---------
+    model : nn.Module
+        A discrete token model, taking (wav, lengths) as arguments
+    sample_length : int
+        The length of the sample
+    device : str | torch.Device
+        The device to use
+
+    Returns
+    -------
+    silence : torch.Tensor
+        A silecnce tensor
+    """
+    audio = torch.zeros(1, sample_length, device=device)
+    length = torch.ones(1, device=device)    
+    audio_repr = model(audio, length)
+    silence = audio_repr.mean(dim=1)[0]
+    return silence
 
 
 def feature_pad_to(tensor, length, padding=None):

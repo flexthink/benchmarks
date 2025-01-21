@@ -32,6 +32,7 @@ sys.path.append(base_dir)
 
 from model.Tokotron import (
     RepresentationMode,
+    get_silence_repr,
     get_silence_token,
     use_silence_padding,
     feature_pad_to,
@@ -575,22 +576,21 @@ def dataio_prepare(hparams):
     else:
         audio_tokens_per_step = hparams["audio_tokens_per_step"]
     if use_silence_padding:
-        silence_token, silence_emb = get_silence_token(
-            hparams["tokenizer"],
-            extract_emb=True,
-            model_kwargs=hparams.get("token_model_kwargs"),
-        )
+        if representation_mode == RepresentationMode.DISCRETE:
+            silence_padding = get_silence_token(
+                hparams["tokenizer"],
+                model_kwargs=hparams.get("token_model_kwargs"),
+            )
+        else:
+            silence_padding = get_silence_repr(
+                hparams["ssl_model"],
+            )
     else:
-        silence_token = (
+        silence_padding = (
             torch.ones(audio_tokens_per_step, dtype=torch.int64)
             * hparams["eos_index"]
         )
 
-    silence_padding = (
-        silence_token
-        if representation_mode == RepresentationMode.DISCRETE
-        else silence_emb
-    )
     silence_padding = silence_padding.cpu()
     silence_padding_len = int(math.ceil(hparams["silence_padding"]))
     bos_width = hparams.get("bos_width", 1)

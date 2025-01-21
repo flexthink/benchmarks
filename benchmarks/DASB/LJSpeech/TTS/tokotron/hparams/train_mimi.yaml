@@ -3,7 +3,7 @@
 # Authors:  Artem Ploujnikov
 # ############################################################################
 
-experiment_name: tokotron/encodec
+experiment_name: tokotron/mimi
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 74443
@@ -14,13 +14,15 @@ save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 testing: True # If set to True, the test evlaution is done, otherwise skipped.
 
-token_model_src: "facebook/encodec_24khz"
+
+model_hub: kyutai/mimi
 g2p_src: flexthink/soundchoice-g2p
+
 # Model type
 representation_mode: discrete
 
 # Data files
-data_folder: !PLACEHOLDER
+data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
 cached_data_folder: !PLACEHOLDER
 prepare_save_folder: !ref <cached_data_folder>
 pretrained_model_save_folder: !ref <prepare_save_folder>
@@ -32,7 +34,6 @@ test_json: !ref <prepare_save_folder>/test.json
 frozen_split_path: null
 sample_path: null
 progress_folder: !ref <output_folder>/progress
-progress_archive: !ref <progress_folder>/progress.tar
 progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
@@ -42,6 +43,7 @@ tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are sav
 
 tokens_loader: !new:utils.tokens.TokensLoader
     data_path: !ref <tokens_folder>
+
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
@@ -62,6 +64,7 @@ overfit_test: False
 overfit_test_sample_count: !ref <batch_size>
 overfit_test_epoch_data_count: 1000
 
+
 # index
 pad_index: 0
 bos_index: 0
@@ -81,7 +84,7 @@ gate_loss_max_weight: 1.
 
 # Feature parameters
 sample_rate: 22050
-model_sample_rate: 24000
+model_sample_rate: 16000
 max_audio_length: 1000
 infer_max_audio_length: !ref <max_audio_length>
 debug_infer_max_audio_length: 10
@@ -104,6 +107,7 @@ gate_offset: !apply:model.Tokotron.distance_diff_loss_ramp
 
 silence_padding: !ref <gate_offset>
 
+# Token model (pretrained)
 # Dataloader options
 train_dataloader_opts:
     batch_size: !ref <batch_size>
@@ -134,7 +138,6 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
-
 ####################### Model parameters ###########################
 # Transformer
 d_model: 512
@@ -145,7 +148,7 @@ d_ffn: 2048
 transformer_dropout: 0.2
 target_dropout: 0.2
 activation: !name:torch.nn.GELU
-audio_num_tokens: 1024
+audio_num_tokens: 2048
 audio_emb_size: 1024
 audio_emb_freeze: False
 audio_emb_pretrained: False
@@ -158,7 +161,6 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
         text: !ref <text_num_tokens>
         phonemes: !ref <phn_num_tokens>
 audio_tokens_per_step: 2
-bandwidth: 1.5
 attention_type: regularMHA
 
 ############################## models ################################
@@ -183,14 +185,10 @@ model: !new:model.Tokotron.TokotronTransformerModel  # yamllint disable-line rul
     max_audio_length: !ref <max_audio_length>
     infer_max_audio_length: !ref <infer_max_audio_length>
 
-tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
-    source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
-    save_path: !ref <save_folder>
-    sample_rate: !ref <sample_rate>
-    bandwidth: !ref <bandwidth>
-    flat_embeddings: False
-    freeze: True
-    renorm_embeddings: False
+tokenizer: !new:utils.tokenizer_interface.MimiTokenizer
+  source: !ref <model_hub>
+  save_path: !ref <save_folder>
+  num_codebooks: !ref <audio_tokens_per_step>
 
 modules:
     model: !ref <model>

@@ -123,7 +123,8 @@ class SQCodec(nn.Module):
         """
         exp_model_config = OmegaConf.load(config)
         scalar_codec = ScalarModel(**exp_model_config.generator.config)
-        parameter_dict = torch.load(self.ckpt_path)
+        device = next(iter(scalar_codec.parameters())).device
+        parameter_dict = torch.load(self.ckpt_path, map_location=device)
         scalar_codec.load_state_dict(parameter_dict["codec_model"])
         return scalar_codec
 
