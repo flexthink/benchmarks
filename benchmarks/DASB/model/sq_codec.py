@@ -101,7 +101,7 @@ class SQCodec(nn.Module):
         )
 
         self.scalar_codec = self.build_codec_model(self.config_path)
-        self.sr = sample_rate
+        self.sample_rate = sample_rate
         self.dim_codebook = dim_codebook
         self.n_codebook = n_codebook
         self.bw = bw
@@ -232,8 +232,8 @@ class SQCodec(nn.Module):
         wav, sr = torchaudio.load(wav_root)
         if wav.numel() == 0:
             return None
-        if sr != self.sr:
-            wav = torchaudio.transforms.Resample(sr, self.sr)(wav)
+        if sr != self.sample_rate:
+            wav = torchaudio.transforms.Resample(sr, self.sample_rate)(wav)
         wav = wav.unsqueeze(1)
         emb, emb_quant, x = self.scalar_codec.inference(wav)
         return x.detach().cpu().squeeze(0)
