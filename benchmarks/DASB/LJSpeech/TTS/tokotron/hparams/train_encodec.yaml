@@ -32,7 +32,6 @@ test_json: !ref <prepare_save_folder>/test.json
 frozen_split_path: null
 sample_path: null
 progress_folder: !ref <output_folder>/progress
-progress_archive: !ref <progress_folder>/progress.tar
 progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32

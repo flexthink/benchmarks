@@ -75,17 +75,17 @@ class ValleLM(nn.Module):
 
     def __init__(
         self,
-        vocab_size: int,
-        nq: int,
-        pad_id: int = 0,
-        share_emb: bool = True,
-        qk_norm: bool = False,
-        dropout: float = 0.0,
-        att_unit: int = 256,
-        head: int = 2,
-        ar_layer: int = 4,
-        nar_layer: int = 4,
-        n_ctx: int = 3000,
+        vocab_size,
+        nq,
+        pad_id=0,
+        share_emb=True,
+        qk_norm=False,
+        dropout=0.0,
+        att_unit=256,
+        head=2,
+        ar_layer=4,
+        nar_layer=4,
+        n_ctx=3000,
     ):
         super().__init__()
 
@@ -120,23 +120,30 @@ class ValleLM(nn.Module):
 
     def forward(
         self,
-        dec_seq: torch.Tensor,
-        dec_seq_lengths: torch.Tensor = None,
-        prefix_len: torch.Tensor = None,
-        conti_feats: Tuple = None,
+        dec_seq,
+        dec_seq_lengths=None,
+        prefix_len=None,
+        conti_feats=None,
         nar_level_idx=1,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Dict]:
+    ):
         """Vall-E forward for training
 
-        Args:
-            dec_seq (LongTensor): Batch of decoder sequences (B, T, nq).
-            dec_seq_lengths (LongTensor): Lengths of batched decoder sequences (B,).
-            enc_seq (LongTensor): Batch of encoder sequences (B, T, nq), keep
-                the interface, may not be used.
-            enc_seq_lengths (LongTensor): Lengths of batched encoder sequences (B,),
-                keep the interface, may not be used.
-            prefix_len (LongTensor): Lengths of condition part in dec_seq (B,).
-            compute_loss (bool): whether to compute loss or just logits.
+        Arguments
+        ---------
+        dec_seq : torch.Tensor
+            Batch of decoder sequences (B, T, nq).
+        dec_seq_lengths : torch.Tensor
+            Lengths of batched decoder sequences (B,).
+        enc_seq : torch.Tensor
+            Batch of encoder sequences (B, T, nq), keep
+            the interface, may not be used.
+        enc_seq_lengths : torch.Tensor
+            Lengths of batched encoder sequences (B,),
+            keep the interface, may not be used.
+        prefix_len : torch.Tensor
+            Lengths of condition part in dec_seq (B,).
+        nar_level_idx : int
+            the index of the non-autoregressive level to train
         """
 
         assert dec_seq.dim() == 3
@@ -196,19 +203,24 @@ class ValleLM(nn.Module):
     @torch.no_grad()
     def inference(
         self,
-        prefix: torch.Tensor,
-        opts: SpeechLMInferenceOptions,
-        enc_seq: torch.Tensor = None,
-        suffix: torch.Tensor = None,
+        prefix,
+        opts,
+        enc_seq=None,
+        suffix=None,
     ):
         """Vall-E Inference.
 
-        Args:
-            prefix (LongTensor): Prefix part of dec_seq (B, T, nq).
-            opts (SpeechLMInferenceOptions): inference options.
-            enc_seq (LongTensor): Encoder token sequence (B, T, nq).
-            suffix (LongTensor): suffix part of dec_seq (B, T, nq),
-                usually the target sequence for teacher-forcing.
+        Arguments
+        ---------
+        prefix : torch.Tensor
+            Prefix part of dec_seq (B, T, nq).
+        opts : SpeechLMInferenceOptions
+            inference options.
+        enc_seq : torch.Tensor
+            Encoder token sequence (B, T, nq).
+        suffix : torch.Tensor
+            suffix part of dec_seq (B, T, nq),
+            usually the target sequence for teacher-forcing.
         """
 
         # (1) initialization
@@ -783,13 +795,20 @@ def logits_to_tokens(
     """
     Select the generated tokens and their scores based on logits prediction.
 
-    logits (torch.Tensor), predicted logits, of size [B, T, nq, V]
-    opts (SpeechLMInferenceOptions): search options
-    mask (torch.Tensor): mask to specify valid tokens, of size [B, 1, nq, V]
-    search_algo (str): search algorithm
-    allow_eos (bool): whether to allow end-of-sentence prediction
-    nq_level (int or None): if not None, only conpute the specified codec level nq.
-
+    Arguments
+    ---------
+    logits : torch.Tensor
+        predicted logits, of size [B, T, nq, V]
+    opts : SpeechLMInferenceOptions
+        search options
+    mask : torch.Tensor
+        mask to specify valid tokens, of size [B, 1, nq, V]
+    search_algo : str
+        search algorithm
+    allow_eos : bool
+        whether to allow end-of-sentence prediction
+    nq_level : int, optional
+        if not None, only conpute the specified codec level nq.
     """
 
     assert logits.dim() == 4
