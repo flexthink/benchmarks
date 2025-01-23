@@ -449,6 +449,7 @@ class TokotronBrain(sb.Brain):
                 audio = clean_padding(audio + self.audio_token_offsets, length)
             wav = self.modules.tokenizer.tokens_to_sig(audio)
             wav = clean_padding(wav, length)
+            wav = wav.to(self.device)
         return wav
 
     def is_eval_epoch(self, epoch):
@@ -742,14 +743,17 @@ def apply_overfit_test(hparams, dataset):
     """
     if hparams["overfit_test"]:
         if isinstance(dataset, tuple):
-            dataset_train, _, _ = dataset
+            dataset_train, dataset_valid, _ = dataset
             dataset_train = apply_overfit_test(hparams, dataset_train)
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
+            dataset_eval.set_output_keys(list(dataset_valid.pipeline.output_mapping.keys()))
             result = dataset_train, dataset_eval, dataset_eval
         elif isinstance(dataset, dict):
             dataset_train = apply_overfit_test(hparams, dataset["train"])
+            dataset_eval.set_output_keys(list(dataset["valid"].pipeline.output_mapping.keys()))
+
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
@@ -757,6 +761,7 @@ def apply_overfit_test(hparams, dataset):
                 "train": dataset_train,
                 "valid": dataset_eval,
                 "test": dataset_eval,
+                "sample": dataset_eval,
             }
         else:
             result = dataset.overfit_test(
