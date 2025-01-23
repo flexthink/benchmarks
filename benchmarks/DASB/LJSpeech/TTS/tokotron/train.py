@@ -575,7 +575,7 @@ def apply_overfit_test(hparams, dataset):
     """
     if hparams["overfit_test"]:
         if isinstance(dataset, tuple):
-            dataset_train, _, _ = dataset
+            dataset_train, dataset_eval, _ = dataset
             dataset_train = apply_overfit_test(hparams, dataset_train)
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
