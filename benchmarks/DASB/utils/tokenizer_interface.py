@@ -259,7 +259,6 @@ class SpeechTokenizerWrapper(SpeechTokenizer, BaseTokenizer):
     def __init__(self, *args, **kwargs):
         SpeechTokenizer.__init__(self, *args, **kwargs)
         BaseTokenizer.__init__(self)
-        self.sample_rate = 16000
 
     @torch.no_grad()
     def sig_to_tokens(self, signal, lengths=None, num_codebooks=None, **kwargs):
@@ -380,16 +379,15 @@ class MimiTokenizer(Mimi, BaseTokenizer):
     def __init__(self, *args, **kwargs):
         Mimi.__init__(self, *args, **kwargs)
         BaseTokenizer.__init__(self)
-        self.sample_rate= self.sampling_rate
 
     @torch.no_grad()
     def sig_to_tokens(self, signal, lengths=None, num_codebooks=None, **kwargs):
         self.eval()
         tokens, _ = self.encode(signal, lengths)
         if num_codebooks:
-            if tokens.shape[-1] < num_codebooks:
+            if tokens.shape[1] < num_codebooks:
                 raise ValueError(
-                    f"Model only outputs {tokens.shape[-1]} codebooks, but {num_codebooks} requested"
+                    f"Model only outputs {tokens.shape[1]} codebooks, but {num_codebooks} requested"
                 )
             tokens = tokens[:, :num_codebooks, :]
         return tokens.movedim(-1, -2)
@@ -436,7 +434,6 @@ class WavTokenizerWrapper(WavTokenizer, BaseTokenizer):
     def __init__(self, *args, **kwargs):
         WavTokenizer.__init__(self, *args, **kwargs)
         BaseTokenizer.__init__(self)
-        self.sample_rate = 24000
 
     @torch.no_grad()
     def sig_to_tokens(self, signal, lengths=None, num_codebooks=None, **kwargs):

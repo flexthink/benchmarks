@@ -123,7 +123,8 @@ class SQCodec(nn.Module):
         """
         exp_model_config = OmegaConf.load(config)
         scalar_codec = ScalarModel(**exp_model_config.generator.config)
-        parameter_dict = torch.load(self.ckpt_path)
+        device = next(iter(scalar_codec.parameters())).device
+        parameter_dict = torch.load(self.ckpt_path, map_location=device)
         scalar_codec.load_state_dict(parameter_dict["codec_model"])
         return scalar_codec
 
@@ -148,9 +149,9 @@ class SQCodec(nn.Module):
         ), "Input array must have 3 dimensions [B, N, D]"
         N, B, D = arr.shape
         arr = arr.copy()
-        if offset_size is not None:
-            for n in range(N):
-                arr[n, :, :] += offset_size * n
+        # if offset_size is not None:
+        #     for n in range(N):
+        #         arr[n, :, :] += offset_size * n
         flattened_arr = arr.transpose(1, 2, 0).reshape(B, N * D)
         return flattened_arr
 
@@ -205,8 +206,8 @@ class SQCodec(nn.Module):
             T % self.n_codebook == 0
         ), "Length T must be divisible by n_codebook"
         codes = codes.view(B, -1, self.n_codebook).permute(2, 0, 1)
-        for i in range(self.n_codebook):
-            codes[i, :, :] -= i * self.dim_codebook
+        # for i in range(self.n_codebook):
+        #     codes[i, :, :] -= i * self.dim_codebook
         emb_quant = []
         for i in range(self.n_codebook):
             tmp_list = decimal_to_ternary_matrix(codes[i, :, :], D=9) - 1
