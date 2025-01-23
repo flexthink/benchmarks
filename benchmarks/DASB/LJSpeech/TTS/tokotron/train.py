@@ -752,11 +752,10 @@ def apply_overfit_test(hparams, dataset):
             result = dataset_train, dataset_eval, dataset_eval
         elif isinstance(dataset, dict):
             dataset_train = apply_overfit_test(hparams, dataset["train"])
-            dataset_eval.set_output_keys(list(dataset["valid"].pipeline.output_mapping.keys()))
-
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
+            dataset_eval.set_output_keys(list(dataset["valid"].pipeline.output_mapping.keys()))
             result = {
                 "train": dataset_train,
                 "valid": dataset_eval,
