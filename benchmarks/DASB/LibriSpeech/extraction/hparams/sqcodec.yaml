@@ -13,17 +13,18 @@ train_log: !ref <output_folder>/extraction_log.txt
 
 # Data files
 data_folder: !PLACEHOLDER  # e.g., /path/to/LibriSpeech
+cached_data_folder: !ref <output_folder> # e.g., path/to/cache
 train_splits: ["train-clean-100"] #, "train-clean-360", "train-other-500"
 dev_splits: ["dev-clean"]
 test_splits: ["dev-clean", "test-clean", "test-other"]
 skip_prep: False
-train_csv: !ref <output_folder>/train.csv
-valid_csv: !ref <output_folder>/dev-clean.csv
+train_csv: !ref <cached_data_folder>/train.csv
+valid_csv: !ref <cached_data_folder>/dev-clean.csv
 test_csv:
-  - !ref <output_folder>/test-clean.csv
-  - !ref <output_folder>/test-other.csv
+  - !ref <cached_data_folder>/test-clean.csv
+  - !ref <cached_data_folder>/test-other.csv
 
-batch_size: 8
+batch_size: 1
 num_workers: 8
 src_key: wav
 id_key: id
@@ -40,13 +41,14 @@ checkpoint: ckpt_00190000.pth
 sample_rate: 16000
 save_embedding: False
 num_codebooks: 4
-save_path: /home/ubuntu/sq-codec/SQ-Codec
+tokenizer_save_path: !PLACEHOLDER
 
 # wavtokenizer model
 tokenizer: !new:utils.tokenizer_interface.SQCodecTokenizer
-  save_path: !ref <save_path>
+  save_path: !ref <tokenizer_save_path>
   checkpoint: !ref <checkpoint>
   config: !ref <config>
+  sample_rate: !ref <sample_rate>
 
 
 tokens_extractor: !new:utils.tokens.TokensExtractor

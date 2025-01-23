@@ -13,17 +13,18 @@ train_log: !ref <output_folder>/extraction_log.txt
 
 # Data files
 data_folder: !PLACEHOLDER  # e.g., /path/to/LibriSpeech
+cached_data_folder: !ref <output_folder> # e.g., path/to/cache
 train_splits: ["train-clean-100"] #, "train-clean-360", "train-other-500"
 dev_splits: ["dev-clean"]
 test_splits: ["dev-clean", "test-clean", "test-other"]
 skip_prep: False
-train_csv: !ref <output_folder>/train.csv
-valid_csv: !ref <output_folder>/dev-clean.csv
+train_csv: !ref <cached_data_folder>/train.csv
+valid_csv: !ref <cached_data_folder>/dev-clean.csv
 test_csv:
-  - !ref <output_folder>/test-clean.csv
-  - !ref <output_folder>/test-other.csv
+  - !ref <cached_data_folder>/test-clean.csv
+  - !ref <cached_data_folder>/test-other.csv
 
-batch_size: 8
+batch_size: 1
 num_workers: 8
 src_key: wav
 id_key: id
@@ -35,13 +36,14 @@ dataloader_opts:
   num_workers: !ref <num_workers>
 
 ### Configuration for  discrete SSL model
-# | SSL Model  | HF Encoder                             | K-Means Dataset | K-Means Size | SSL Layers           | Vocoder Model                            |
-# |------------|----------------------------------------|-----------------|--------------|----------------------|------------------------------------------|
-# | WavLM      | microsoft/wavlm-large                  | LibriSpeech960  | 1000         | 1, 3, 7, 12, 18, 23  | speechbrain/hifigan-wavlm-k1000-LibriTTS |
-# | HuBERT     | facebook/hubert-large-ll60k            | LibriSpeech960  | 1000         | 1, 3, 7, 12, 18, 23  | WIP                                      |
-# | Wav2Vec2   | facebook/wav2vec2-large-960h-lv60-self | LibriSpeech960  | 1000         | 1, 3, 7, 12, 18, 23  | WIP                                      |
+# | SSL Model  | HF Encoder                             | K-Means Dataset | K-Means Size | SSL Layers           | Vocoder Model                               |
+# |------------|----------------------------------------|-----------------|--------------|----------------------|---------------------------------------------|
+# | WavLM      | microsoft/wavlm-large                  | LibriSpeech960  | 1000         | 1, 3, 7, 12, 18, 23  | speechbrain/hifigan-wavlm-k1000-LibriTTS    |
+# | HuBERT     | facebook/hubert-large-ll60k            | LibriSpeech960  | 1000         | 1, 3, 7, 12, 18, 23  | speechbrain/hifigan-hubert-k1000-LibriTTS   |
+# | Wav2Vec2   | facebook/wav2vec2-large                | LibriSpeech960  | 1000         | 1, 3, 7, 12, 18, 23  | speechbrain/hifigan-wav2vec2-k1000-LibriTTS |
 
-# ssl_model_type: hubert, wavlm, wav2vec2
+
+# ssl_model_type: HuBERT, WavLM, Wav2Vec2
 # ssl_hub: facebook/hubert-large-ll60k, microsoft/wavlm-large,  facebook/wav2vec2-large
 ssl_model_type: WavLM
 ssl_hub: microsoft/wavlm-large
