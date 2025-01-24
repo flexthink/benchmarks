@@ -66,7 +66,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 input: text
 number_of_epochs: 1000
 reset_annealing_epoch: null
-batch_size: 16 # @orion_step1: --batch_size~"uniform(2, 16,discrete=True)"
+batch_size: 16 
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
 max_grad_norm: 0.01
@@ -87,7 +87,7 @@ eos_width: 1
 audio_token_shift: 0
 
 # stages related parameters
-lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.5)"
+lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.005)"
 lr_warmup_steps: 10000
 lr_annealing_mode: step
 guided_attention_weight: 50.0
@@ -184,7 +184,7 @@ sample_dataloader_opts:
 d_model: 512
 nhead: 4
 enc_num_layers: 6 # @orion_step1: --enc_num_layers~"choices([3, 6, 12])"
-dec_num_layers: 12 # @orion_step1: --dec_num_layers~"chocies([3, 6, 12])"
+dec_num_layers: 12 # @orion_step1: --dec_num_layers~"choices([3, 6, 12])"
 d_ffn: 2048
 transformer_dropout: 0.2
 target_dropout: 0.2

@@ -89,7 +89,7 @@ special_tokens: ["<bos>", "<eos>", "<eot>"]
 special_num_tokens: 4
 
 # stages related parameters
-lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.5)"
+lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.005)"
 lr_warmup_steps: 10000
 lr_annealing_mode: step
 

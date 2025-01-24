@@ -139,7 +139,7 @@ sample_dataloader_opts:
 d_model: 512
 nhead: 4
 enc_num_layers: 6 # @orion_step1: --enc_num_layers~"choices([3, 6, 12])"
-dec_num_layers: 12 # @orion_step1: --dec_num_layers~"chocies([3, 6, 12])"
+dec_num_layers: 12 # @orion_step1: --dec_num_layers~"choices([3, 6, 12])"
 d_ffn: 2048
 transformer_dropout: 0.2
 target_dropout: 0.2
