@@ -275,6 +275,7 @@ class TokotronBrain(sb.Brain):
             self.is_evaluating = True
 
         self.audio_token_offsets = self.get_token_offsets()
+        self.token_model_kwargs = getattr(self.hparams, "token_model_kwargs", {})
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.
@@ -447,7 +448,7 @@ class TokotronBrain(sb.Brain):
         with torch.no_grad():
             if self.audio_token_offsets is not None:
                 audio = clean_padding(audio + self.audio_token_offsets, length)
-            wav = self.modules.tokenizer.tokens_to_sig(audio)
+            wav = self.modules.tokenizer.tokens_to_sig(audio, **self.token_model_kwargs)
             wav = clean_padding(wav, length)
             wav = wav.to(self.device)
         return wav
@@ -574,12 +575,20 @@ def dataio_prepare(hparams):
     )
 
     tokens_loader = hparams.get("tokens_loader")
+    if "speech_model_layers" in hparams:
+        tokens_loader_kwargs = {
+            "num_codebooks": get_selected_layer_indexes(hparams)
+        }
+    else:
+        tokens_loader_kwargs = {
+            "num_codebooks": audio_tokens_per_step
+        }
 
     @sb.utils.data_pipeline.takes("uttid")
     @sb.utils.data_pipeline.provides("audio_pad", "audio_bos")
     def audio_pipeline(id):
         audio = tokens_loader.tokens_by_uttid(
-            id, num_codebooks=audio_tokens_per_step
+            id, **tokens_loader_kwargs
         )
         audio_pad = feature_pad_to(
             audio, len(audio) + silence_padding_len, silence_padding
@@ -676,6 +685,25 @@ def init_sequence_encoder(hparams):
     encoder.update_from_iterable(tokens, sequence_input=False)
     encoder.expect_len(len(tokens) + SPECIAL_TOKEN_COUNT)
     return encoder
+
+
+def get_selected_layer_indexes(hparams):
+    """Finds the layers of selected layers
+
+    Arguments
+    ---------
+    hparams : dict
+        Hyperparameters
+    """
+    selected_layers = hparams.get("speech_model_layers")
+    available_layers = hparams.get("available_speech_model_layers")
+    if not (selected_layers and available_layers):
+        return None
+    layer_idx = [
+        available_layers.index(layer)
+        for layer in selected_layers
+    ]
+    return layer_idx
 
 
 def read_token_list(file_name):
