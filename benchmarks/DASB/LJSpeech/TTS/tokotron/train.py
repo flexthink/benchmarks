@@ -546,17 +546,11 @@ def dataio_prepare(hparams):
     use_silence_padding = hparams.get("use_silence_padding", True)
 
     if representation_mode == RepresentationMode.DISCRETE:
-        layers_key = "token_model_layers"
         model_key = "tokenizer"
     else:
-        layers_key = "ssl_model_layers"
         model_key = "ssl_model"
 
-    audio_tokens_per_step = (
-        len(hparams[layers_key])
-        if layers_key in hparams
-        else hparams["audio_tokens_per_step"]
-    )
+    audio_tokens_per_step = hparams["audio_tokens_per_step"]
     if (
         use_silence_padding
         and representation_mode == RepresentationMode.DISCRETE
