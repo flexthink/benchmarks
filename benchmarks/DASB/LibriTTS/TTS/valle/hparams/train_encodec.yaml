@@ -50,7 +50,7 @@ g2p_src: flexthink/soundchoice-g2p
 tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
 tokens_loader: !new:utils.tokens.TokensLoader
     data_path: !ref <tokens_folder>
-flip_layers: True
+flip_layers: False
 splits: ["train", "valid", "test"]
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
@@ -86,7 +86,8 @@ sample_rate: 22050
 model_sample_rate: 16000
 max_audio_length: 2000
 text_max_length: 500
-n_ctx: !ref <max_audio_length> + <text_max_length>
+spk_prompt_length: 150
+n_ctx: !ref <max_audio_length> + <text_max_length> + <spk_prompt_length>
 infer_max_audio_length: !ref <max_audio_length>
 max_length_ratio: 10.0
 debug_infer_max_audio_length: 10
@@ -227,3 +228,6 @@ epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
+
+spk_sampler: !name:speechbrain.dataio.sampler.ReproducibleRandomSampler
+    seed: !ref <seed>

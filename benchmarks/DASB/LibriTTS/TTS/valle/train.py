@@ -22,8 +22,10 @@ from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.dataio.dataio import clean_padding_, length_to_mask, write_audio
 from speechbrain.dataio.dataio import write_audio
+from speechbrain.utils.data_utils import pad_right_to
 from speechbrain.utils.distributed import run_on_main
 from speechbrain.utils.data_utils import batch_pad_right
+from functools import partial
 import re
 import string
 
@@ -489,6 +491,7 @@ def dataio_prepare(hparams):
         offsets = offsets.flip(-1)
     
     tokens_loader = hparams.get("tokens_loader")
+    spk_prompt_length = hparams["spk_prompt_length"]
 
     @sb.utils.data_pipeline.takes("label")
     @sb.utils.data_pipeline.provides("label_norm", "label_norm_eval")
@@ -505,13 +508,29 @@ def dataio_prepare(hparams):
         """Processes the transcriptions to generate proper labels"""
         return label_encoder.encode_sequence_torch(label)
 
-    @sb.utils.data_pipeline.takes("uttid", "tokens")
+    def spk_prompt(uttid, spk_sample):
+        # Sample a speaker-matched embedding
+        selected_uttid = spk_sample[uttid]
+        audio = tokens_loader.tokens_by_uttid(
+            selected_uttid, num_codebooks=hparams["audio_tokens_per_step"]
+        )
+        if audio.size(0) > spk_prompt_length:
+            offset = torch.randint(0, audio.size(0), (1,)).item()
+        else:
+            offset = 0
+        # Retrieve the embedding value from the dataset
+        audio_spk_prompt, _ = pad_right_to(
+            audio[offset:offset + spk_prompt_length],
+            (spk_prompt_length, audio.size(1))
+        )
+        return audio_spk_prompt
+
+    @sb.utils.data_pipeline.takes("uttid", "tokens", "spk_prompt")
     @sb.utils.data_pipeline.provides("audio", "prefix", "prompt", "prefix_length", "length")
-    def prompt_pipeline(id, tokens):
+    def prompt_pipeline(id, tokens, spk_prompt):
         audio = tokens_loader.tokens_by_uttid(
             id, num_codebooks=hparams["audio_tokens_per_step"]
         )
-
         if hparams["flip_layers"]:
             audio = audio.flip(-1)
         yield audio
@@ -521,6 +540,8 @@ def dataio_prepare(hparams):
                 torch.ones(1, num_tracks) * hparams["bos_index"],
                 tokens.unsqueeze(-1).expand(len(tokens), num_tracks),
                 torch.ones(1, num_tracks) * hparams["eot_index"],
+                spk_prompt + hparams["audio_token_shift"] + offsets,
+                torch.ones(1, num_tracks) * hparams["eop_index"],
             ]
         )
         yield prefix
@@ -542,7 +563,7 @@ def dataio_prepare(hparams):
         sig = sb.dataio.dataio.read_audio(wav)
         return sig
 
-    dynamic_items = [text_pipeline, tokens_pipeline, prompt_pipeline]
+    dynamic_items = [text_pipeline, tokens_pipeline]
 
     init_sequence_encoder(hparams)
     use_spk_emb = hparams.get("use_spk_emb", False)
@@ -560,6 +581,7 @@ def dataio_prepare(hparams):
         prepared_features.append("spk_emb")
         output_keys.append("spk_emb")
 
+    resample_fn = {}
     for dataset in data_info:
         dataset_dynamic_items = list(dynamic_items)
         dataset_output_keys = list(output_keys)
@@ -572,6 +594,27 @@ def dataio_prepare(hparams):
             dynamic_items=dataset_dynamic_items,
             output_keys=dataset_output_keys,
         )
+        spk_idx, spk_samplers = group_by_speaker(dynamic_dataset, hparams)
+        spk_sample = {}
+        spk_prompt_pipeline = partial(
+            spk_prompt,
+            spk_sample=spk_sample,
+        )
+        dynamic_dataset.add_dynamic_item(
+            func=spk_prompt_pipeline,
+            takes=["uttid"],
+            provides=["spk_prompt"],
+        )
+        dynamic_dataset.add_dynamic_item(prompt_pipeline)
+        resample_fn[dataset] = partial(
+            resample_spk,
+            spk_idx=spk_idx,
+            sample=spk_sample,
+            dataset=dynamic_dataset,
+            spk_samplers=spk_samplers,
+        )
+        resample_fn[dataset](epoch=0)    
+
 
         datasets[dataset] = dynamic_dataset
         hparams[f"{dataset}_dataloader_opts"]["shuffle"] = False
@@ -597,6 +640,7 @@ def dataio_prepare(hparams):
         raise NotImplementedError(
             "sorting must be random, ascending or descending"
         )
+
     return datasets
 
 
@@ -611,6 +655,84 @@ def get_offsets(vocab_size, tracks):
         The number of tracks
     """
     return torch.arange(tracks) * vocab_size
+
+
+def group_by_speaker(dataset, hparams):
+    """Groups utterance IDs in a dataset by speaker, for selection. The selection
+    is stable based on the seed - calling this method multiple times will always
+    result in the same order
+
+    Arguments
+    ---------
+    dataset : torch.Tensor
+        the dataset from which to select items
+    hparams : dict
+        hyperparameters
+
+    Returns
+    -------
+    spk_idx : dict
+        a str -> str with a list of utterance IDs
+        for every speaker
+    spk_samplers : dict
+        a reproducible sampler for every speaker
+    spk_samplers_it : dict
+        an iterator for each sampler
+    """
+    spk_uttid = {}
+    spk_samplers = {}
+    speakers = []
+    generator = torch.Generator()
+    generator.manual_seed(hparams["seed"])
+
+    # Group by speaker
+    with dataset.output_keys_as(["spk_id", "uttid"]):
+        for idx, item in enumerate(dataset):
+            spk_id = item["spk_id"]
+            if spk_id not in spk_uttid:
+                spk_uttid[spk_id] = []
+            spk_uttid[spk_id].append(item["uttid"])
+            speakers.append(spk_id)
+
+    # Create a reproducible sampler
+    for spk_id in speakers:
+        sampler = hparams["spk_sampler"](data_source=spk_uttid[spk_id])
+        spk_samplers[spk_id] = sampler
+
+    return spk_uttid, spk_samplers
+
+
+def resample_spk(sample, spk_idx, spk_samplers, dataset, epoch):
+    """Selects new samples
+
+    Arguments
+    ---------
+    spk_idx : dict
+        Data item indexes grouped by speaker
+    spk_samplers : dict
+        A sampler for each speaker
+    spk_samplers_it : dict
+        An iterator for each speaker
+    epoch : int
+        The epoch number
+
+    Returns
+    -------
+    sample : dict
+        a dictionary with uttids as keys and matching
+        indexes as values
+    """
+    if epoch is None:
+        epoch = 0
+    spk_samplers_it = {}
+    for spk_id, sampler in spk_samplers.items():
+        sampler.set_epoch(epoch)
+        spk_samplers_it[spk_id] = iter(sampler)
+    with dataset.output_keys_as(["uttid", "spk_id"]):
+        for item in dataset:
+            spk_item_idx = next(spk_samplers_it[item["spk_id"]])
+            dataset_item_idx = spk_idx[item["spk_id"]][spk_item_idx]
+            sample[item["uttid"]] = dataset_item_idx
 
 
 def init_sequence_encoder(hparams):
