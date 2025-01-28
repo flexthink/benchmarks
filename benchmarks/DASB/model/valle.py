@@ -262,6 +262,10 @@ class ValleLM(nn.Module):
         modality_index = prev_tok.flatten()
         mask = modality_index_to_mask(modality_index, opts)
         mask_cache = []
+        modality_tokens = torch.tensor(
+            list(opts.masks.keys()),
+            device=prefix.device
+        )
 
         for step in range(maxlen):
             #  (3.2) AR loop
@@ -288,9 +292,14 @@ class ValleLM(nn.Module):
 
             # (3.3) detect modality swtich
             mask_cache.append(mask.clone())
-            modality_change_mask = torch.logical_and(
-                prev_tok[:, 0] >= 32, prev_tok[:, 0] < 64,
+            modality_change_mask = torch.isin(
+                prev_tok[:, 0],
+                modality_tokens
             )
+            # Note: The ESPNET VALL-E had
+            # modality_change_mask = torch.logical_and(
+            #    prev_tok[:, 0] >= 32, prev_tok[:, 0] < 64,
+            #)
             if torch.any(modality_change_mask):
                 modality_index = torch.where(
                     modality_change_mask, prev_tok[:, 0], modality_index,

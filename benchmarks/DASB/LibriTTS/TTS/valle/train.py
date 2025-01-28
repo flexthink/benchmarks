@@ -78,6 +78,7 @@ class VALLEBrain(sb.Brain):
         audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(min=0.).int()
         wav = self.modules.tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
+        wav = wav.to(self.device)
         return wav
 
     def compute_forward(self, batch, stage):
@@ -401,7 +402,7 @@ class VALLEBrain(sb.Brain):
         track_end = track_start + self.hparams.vocab_size
         mask = (
             ((idx >= track_start) & (idx < track_end))
-            | (idx == self.hparams.bos_index)
+            | (idx == self.hparams.eos_index)
         ).logical_not()
         return self.hparams.inference_opts(
             masks={
@@ -698,14 +699,17 @@ def apply_overfit_test(hparams, dataset):
     """
     if hparams["overfit_test"]:
         if isinstance(dataset, tuple):
-            dataset_train, _, _ = dataset
+            dataset_train, dataset_valid, _ = dataset
             dataset_train = apply_overfit_test(hparams, dataset_train)
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
+            dataset_eval.set_output_keys(list(dataset_valid.pipeline.output_mapping.keys()))
             result = dataset_train, dataset_eval, dataset_eval
         elif isinstance(dataset, dict):
             dataset_train = apply_overfit_test(hparams, dataset["train"])
+            dataset_eval.set_output_keys(list(dataset["valid"].pipeline.output_mapping.keys()))
+
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
@@ -797,10 +801,8 @@ if __name__ == "__main__":
         overrides=overrides,
     )
 
-    from ljspeech_prepare import prepare_ljspeech
 
     # Data preparation, to be run on only one process.
-    if not hparams["skip_prep"]:
     from libritts_prepare import prepare_libritts
 
     # Data preparation, to be run on only one process.
