@@ -57,7 +57,8 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # Training parameters
 input: text
 number_of_epochs: 150
-batch_size: 16 
+batch_size: 16
+valid_batch_size: !ref <batch_size>
 grad_accumulation_factor: 1
 max_grad_norm: 5.0
 sorting: random
@@ -80,10 +81,11 @@ special_num_tokens: 5
 lr: 0.001 # @orion_step1: --lr~"loguniform(0.00001,0.005)"
 lr_warmup_steps: 10000
 lr_annealing_mode: step
+betas: [0.9, 0.95]
 
 # Feature parameters
-sample_rate: 22050
-model_sample_rate: 16000
+sample_rate: 24000
+model_sample_rate: 24000
 max_audio_length: 2000
 text_max_length: 500
 spk_prompt_length: 150
@@ -112,7 +114,7 @@ train_dataloader_opts:
             value: !ref <pad_index>
 
 valid_dataloader_opts:
-    batch_size: !ref <batch_size>
+    batch_size: !ref <valid_batch_size>
     num_workers: !ref <num_workers>
     collate_fn: !name:speechbrain.dataio.batch.PaddedBatch
         padding_kwargs:
@@ -204,8 +206,9 @@ modules:
     tokenizer: !ref <tokenizer>
 
 # define two optimizers here for two-stage training
-opt_class: !name:torch.optim.Adam
+opt_class: !name:torch.optim.AdamW
     lr: !ref <lr>
+    betas: !ref <betas>
 
 compute_cost: !name:model.valle.masked_nll_loss
 

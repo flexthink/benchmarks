@@ -77,7 +77,6 @@ class VALLEBrain(sb.Brain):
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device
-        audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(min=0.).int()
         wav = self.modules.tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         wav = wav.to(self.device)
@@ -384,10 +383,11 @@ class VALLEBrain(sb.Brain):
             for prefix_item in prefix_items
         ]
         inferred_tokens = [
-            result[0][0] if result[0] else torch.zeros(1000, self.hparams.audio_tokens_per_step)
+            result[0][0] if result[0] else torch.zeros(1000, self.hparams.audio_tokens_per_step, device=self.device)
             for result in inference_results
         ]
         audio, audio_length = batch_pad_right(inferred_tokens)
+        audio_length = audio_length.to(self.device)
         audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(0)
         return audio, audio_length
 
@@ -418,7 +418,7 @@ class VALLEBrain(sb.Brain):
         samples = undo_padding_tensor(wav, length)
         for uttid, sample in zip(batch.uttid, samples):
             file_name = output_folder / f"pred_{uttid}.wav"
-            write_audio(file_name, sample, self.hparams.model_sample_rate)
+            write_audio(file_name, sample.cpu(), self.hparams.model_sample_rate)
 
     def save_eval(self, stage):
         """Saves evaluation results
@@ -563,7 +563,7 @@ def dataio_prepare(hparams):
         sig = sb.dataio.dataio.read_audio(wav)
         return sig
 
-    dynamic_items = [text_pipeline, tokens_pipeline]
+    dynamic_items = [text_pipeline, tokens_pipeline, sig_pipeline]
 
     init_sequence_encoder(hparams)
     use_spk_emb = hparams.get("use_spk_emb", False)
@@ -586,7 +586,6 @@ def dataio_prepare(hparams):
         dataset_dynamic_items = list(dynamic_items)
         dataset_output_keys = list(output_keys)
         if dataset != "train":
-            dataset_dynamic_items.append(sig_pipeline)
             dataset_output_keys += ["sig", "label_norm_eval", "prefix"]
         dynamic_dataset = sb.dataio.dataset.DynamicItemDataset.from_json(
             json_path=data_info[dataset],
@@ -633,9 +632,8 @@ def dataio_prepare(hparams):
         hparams["train_dataloader_opts"]["shuffle"] = False
 
     elif hparams["sorting"] == "random":
-        hparams["train_dataloader_opts"]["shuffle"] = True
-        pass
-
+        if not hparams["overfit_test"]:
+            hparams["train_dataloader_opts"]["shuffle"] = True
     else:
         raise NotImplementedError(
             "sorting must be random, ascending or descending"
