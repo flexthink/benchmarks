@@ -40,7 +40,7 @@ freeze_embedding: False
 save_embedding: False
 
 
-tokenizer: !new:utils.tokenizer_interface.SpeechTokenizer
+tokenizer: !new:utils.tokenizer_interface.SpeechTokenizerWrapper
   source: fnlp/SpeechTokenizer  # Only the 24kHz version supports mono audio
   save_path: !ref <save_folder>
 
