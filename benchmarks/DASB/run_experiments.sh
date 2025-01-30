@@ -149,8 +149,13 @@ seed="${seed:-$RANDOM}"
 
 
 if [ "$rnd_dir" = True ]; then
-    rnd_dirname=$(tr -dc 'a-zA-Z' < /dev/urandom | head -c 6)
-    output_folder="$output_folder/$rnd_dirname"
+    if [[ ! -z "$ORION_TRIAL_ID" ]]; then
+      # Use the Orion Trial ID to ensure interrupted trials are resumed
+      output_folder="$output_folder/$ORION_TRIAL_ID"
+    else
+      rnd_dirname=$(tr -dc 'a-zA-Z' < /dev/urandom | head -c 6)
+      output_folder="$output_folder/$rnd_dirname"
+    fi
 fi
 
 # Make sure  the output_folder is created
