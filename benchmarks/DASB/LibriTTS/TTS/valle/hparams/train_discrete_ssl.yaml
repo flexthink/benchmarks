@@ -38,14 +38,8 @@ train_split: !apply:speechbrain.utils.hparams.choice
         full: ["train-clean-100", "train-clean-360", "train-other-500"]
 valid_split: ["dev-clean"]
 test_split: ["test-clean"]
-frozen_split_path: null
-sample_path: null
 progress_folder: !ref <output_folder>/progress
 progress_current: !ref <progress_folder>/current
-progress_meta: !ref <progress_folder>/meta.yaml
-num_audio_samples: 32
-samples_interval: 5
-
 tokens_folder: !PLACEHOLDER
 tokens_loader: !new:utils.tokens.TokensLoader
     data_path: !ref <tokens_folder>
@@ -66,15 +60,12 @@ vocoder_repo_id: !apply:speechbrain.utils.hparams.choice
         hubert: speechbrain/hifigan-hubert-k1000-LibriTTS
         wavlm: speechbrain/hifigan-wavlm-k1000-LibriTTS
         wav2vec2: speechbrain/hifigan-wav2vec2-k1000-LibriTTS
-
-ssl_model_layers: [1, 3, 7, 12, 18, 23]
-token_model_layers: !ref <ssl_model_layers>
+speech_model_layers: [1, 3, 7, 12, 18, 23]
 flip_layers: false
 token_offset: 1
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
 splits: ["train", "valid", "test"]
-split_ratio: [90, 5, 5]
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters
@@ -175,7 +166,7 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 token_model_kwargs:
-    SSL_layers: !ref <token_model_layers>
+    SSL_layers: !ref <speech_model_layers>
 
 ####################### Model parameters ###########################
 # Transformer
