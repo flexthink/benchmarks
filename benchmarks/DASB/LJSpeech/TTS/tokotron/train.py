@@ -264,15 +264,16 @@ class TokotronBrain(sb.Brain):
         self.use_spk_emb = getattr(self.hparams, "use_spk_emb", False)
 
         self.is_evaluating = False
-        if stage == sb.Stage.VALID:
-            if self.is_eval_epoch(epoch):
+        if self.hparams.eval_enabled:
+            if stage == sb.Stage.VALID:
+                if self.is_eval_epoch(epoch):
+                    self.evaluator.on_evaluate_start(stage, epoch)
+                    self.is_evaluating = True
+                else:
+                    logger.info("No evaluation on epoch %d", epoch)
+            elif stage == sb.Stage.TEST:
                 self.evaluator.on_evaluate_start(stage, epoch)
                 self.is_evaluating = True
-            else:
-                logger.info("No evaluation on epoch %d", epoch)
-        elif stage == sb.Stage.TEST:
-            self.evaluator.on_evaluate_start(stage, epoch)
-            self.is_evaluating = True
 
         self.audio_token_offsets = self.get_token_offsets()
         self.token_model_kwargs = getattr(
