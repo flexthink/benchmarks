@@ -36,7 +36,7 @@ dataloader_opts:
 # Tokenizer parameters
 model_hub: kyutai/mimi
 vocab_size: 1024
-num_codebooks: 23
+num_codebooks: 32
 sample_rate: 24000
 # Feature parameters
 encoder_dim: 1024
