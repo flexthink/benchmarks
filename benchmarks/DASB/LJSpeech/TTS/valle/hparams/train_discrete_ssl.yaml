@@ -57,14 +57,13 @@ vocoder_repo_id: !apply:speechbrain.utils.hparams.choice
         wavlm: speechbrain/hifigan-wavlm-k1000-LibriTTS
         wav2vec2: speechbrain/hifigan-wav2vec2-k1000-LibriTTS
 
-ssl_model_layers: [1, 3, 7, 12, 18, 23]
+available_speech_model_layers: [1, 3, 7, 12, 18, 23]
+speech_model_layers: !ref <available_speech_model_layers>
 flip_layers: True
-token_model_layers: !ref <ssl_model_layers>
 token_offset: 1
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
 splits: ["train", "valid", "test"]
-split_ratio: [90, 5, 5]
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters
@@ -175,7 +174,7 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 token_model_kwargs:
-    SSL_layers: !ref <token_model_layers>
+    SSL_layers: !ref <speech_model_layers>
 
 ####################### Model parameters ###########################
 # Transformer

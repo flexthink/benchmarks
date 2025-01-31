@@ -1,5 +1,5 @@
 # ############################################################################
-# Auido Tokenizer: wavtokenizer
+# Auido Tokenizer: Speech Tokenizer
 # Extraction: Librispeech 960h
 # Authors: Jarod Duret 2024
 # ############################################################################
@@ -7,19 +7,20 @@
 
 seed: 1986
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/wavtokenizer
+output_folder: !ref results/speech_tokenizer
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/extraction_log.txt
 
 # Data files
-data_folder: !PLACEHOLDER  # e.g., /path/to/LJSpeech
-splits: ["train", "valid", "test"]
-split_ratio: [90, 5, 5]
-frozen_split_path: null
+data_folder: !PLACEHOLDER  # e.g., /path/to/LibriSpeech
+train_splits: ["train-clean-100"] #, "train-clean-360", "train-other-500"
+dev_splits: ["dev-clean"]
+test_splits: ["dev-clean", "test-clean", "test-other"]
 skip_prep: False
 train_json: !ref <output_folder>/train.json
-valid_json: !ref <output_folder>/valid.json
+valid_json: !ref <output_folder>/dev-clean.json
 test_json: !ref <output_folder>/test.json
+
 
 batch_size: 8
 num_workers: 8

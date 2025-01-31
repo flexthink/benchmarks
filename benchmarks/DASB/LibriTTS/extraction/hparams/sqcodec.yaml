@@ -1,5 +1,5 @@
 # ############################################################################
-# Auido Tokenizer: wavtokenizer
+# Auido Tokenizer: Speech Tokenizer
 # Extraction: Librispeech 960h
 # Authors: Jarod Duret 2024
 # ############################################################################
@@ -7,19 +7,20 @@
 
 seed: 1986
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/wavtokenizer
+output_folder: !ref results/sqcodec
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/extraction_log.txt
 
 # Data files
-data_folder: !PLACEHOLDER  # e.g., /path/to/LJSpeech
-splits: ["train", "valid", "test"]
-split_ratio: [90, 5, 5]
-frozen_split_path: null
+data_folder: !PLACEHOLDER  # e.g., /path/to/LibriSpeech
+train_splits: ["train-clean-100"] #, "train-clean-360", "train-other-500"
+dev_splits: ["dev-clean"]
+test_splits: ["dev-clean", "test-clean", "test-other"]
 skip_prep: False
 train_json: !ref <output_folder>/train.json
-valid_json: !ref <output_folder>/valid.json
+valid_json: !ref <output_folder>/dev-clean.json
 test_json: !ref <output_folder>/test.json
+
 
 batch_size: 8
 num_workers: 8
@@ -32,22 +33,20 @@ dataloader_opts:
   shuffle: True
   num_workers: !ref <num_workers>
 
-# WavTokenizer parameters
-model_hub: novateur/WavTokenizer-medium-music-audio-75token
-config: wavtokenizer_mediumdata_music_audio_frame75_3s_nq1_code4096_dim512_kmeans200_attn.yaml
-checkpoint: wavtokenizer_medium_music_audio_320_24k_v2.ckpt
-sample_rate: 24000
+# SQCodec parameters
+config: config.yaml
+checkpoint: ckpt_00190000.pth
+sample_rate: 16000
 save_embedding: False
-num_codebooks: 1
-vocab_size: 4096
+num_codebooks: 4
+save_path: /home/ubuntu/sq-codec/SQ-Codec
 
-# wavtokenizer model
-tokenizer: !new:utils.tokenizer_interface.WavTokenizerWrapper
-  source: !ref <model_hub>
-  save_path: !ref <save_folder>
+
+# SQCodec model
+tokenizer: !new:utils.tokenizer_interface.SQCodecTokenizer
+  save_path: !ref <save_path>
   checkpoint: !ref <checkpoint>
   config: !ref <config>
-  freeze: True
 
 
 tokens_extractor: !new:utils.tokens.TokensExtractor
