@@ -1,3 +1,11 @@
+# ############################################################################
+# Evaluation Hyperparameters
+# Common to old models, appended to main hyperparameters
+#
+# Authors:  Artem Ploujnikov
+# ############################################################################
+
+eval_enabled: True
 eval_sample_rate: 16000
 eval_samples: null
 eval_interval: 1
