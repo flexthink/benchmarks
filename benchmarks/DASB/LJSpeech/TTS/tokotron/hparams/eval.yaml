@@ -2,11 +2,7 @@ eval_sample_rate: 16000
 eval_samples: null
 eval_interval: 1
 eval_asr_type: whisper
-eval_asr_source: !apply:speechbrain.utils.hparams.choice
-  value: !ref <eval_asr_type>
-  choices:
-    encoder_decoder: speechbrain/asr-transformer-transformerlm-librispeech
-    whisper: openai/whisper-small
+eval_asr_source: openai/whisper-small
 evaluations: utmos,asr
 tmp_folder: null
 eval_utmos_source: chaanks/wav2vec2-small
@@ -26,18 +22,10 @@ eval_utmos: !name:eval.UTMOSSpeechEvaluator
   domain_id: !ref <eval_utmos_domain_id>
   judge_id: !ref <eval_utmos_judge_id>
 
-eval_asr: !apply:speechbrain.utils.hparams.choice
-  value: !ref <eval_asr_type>
-  choices:
-    encoder_decoder: !name:eval.EncoderDecoderASRSpeechEvaluator
-      source: !ref <eval_asr_source>
-      sample_rate: !ref <eval_sample_rate>
-      overrides:
-        lm_weight: 0.0
-    whisper: !name:eval.WhisperASRSpeechEvaluator
-      source: !ref <eval_asr_source>
-      sample_rate: !ref <eval_sample_rate>
-      savedir: !ref <pretrained_model_save_folder>
+eval_asr: !name:eval.WhisperASRSpeechEvaluator
+  source: !ref <eval_asr_source>
+  sample_rate: !ref <eval_sample_rate>
+  savedir: !ref <pretrained_model_save_folder>
 
 evaluators:
   utmos: !ref <eval_utmos>

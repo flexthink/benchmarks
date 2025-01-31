@@ -61,7 +61,7 @@ vocoder_repo_id: !apply:speechbrain.utils.hparams.choice
         wavlm: speechbrain/hifigan-wavlm-k1000-LibriTTS
         wav2vec2: speechbrain/hifigan-wav2vec2-k1000-LibriTTS
 speech_model_layers: [1, 3, 7, 12, 18, 23]
-flip_layers: false
+flip_layers: False
 token_offset: 1
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
@@ -71,7 +71,7 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 # Training parameters
 input: text
 number_of_epochs: 50
-batch_size: 16 
+batch_size: 16
 valid_batch_size: !ref <batch_size>
 grad_accumulation_factor: 1
 max_grad_norm: 0.01

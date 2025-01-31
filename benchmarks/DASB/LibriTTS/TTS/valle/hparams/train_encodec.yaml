@@ -213,7 +213,7 @@ opt_class: !name:torch.optim.AdamW
 compute_cost: !name:model.valle.masked_nll_loss
 
 log_softmax: !new:speechbrain.nnet.activations.Softmax
-   apply_log: True
+    apply_log: True
 
 lr_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr>

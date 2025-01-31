@@ -7,7 +7,7 @@ eval_interval: 1
 eval_subset: null
 eval_asr_beam_size: 66
 eval_asr_type: encoder_decoder
-eval_asr_source:  openai/whisper-small
+eval_asr_source: openai/whisper-small
 eval_spk_sim_source: microsoft/wavlm-base-sv
 evaluations: utmos,asr,spk_sim
 tmp_folder: null

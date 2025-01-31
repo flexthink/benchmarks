@@ -20,8 +20,11 @@ import sys
 import shutil
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
-from speechbrain.dataio.dataio import clean_padding_, length_to_mask, write_audio
-from speechbrain.dataio.dataio import write_audio
+from speechbrain.dataio.dataio import (
+    clean_padding_,
+    length_to_mask,
+    write_audio,
+)
 from speechbrain.utils.data_utils import pad_right_to
 from speechbrain.utils.distributed import run_on_main
 from speechbrain.utils.data_utils import batch_pad_right
@@ -32,7 +35,7 @@ import string
 base_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
 sys.path.append(base_dir)
 
-from evaluation import SpeechEvaluationMetricStats
+from evaluation import SpeechEvaluationMetricStats  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,7 @@ class VALLEBrain(sb.Brain):
         self.evaluation_metric = SpeechEvaluationMetricStats(
             self.hparams, self.device
         )
-            
+
     def create_waveform(self, audio, length):
         """Creates a waveform from a discrete or continuous audio
         representation
@@ -101,14 +104,13 @@ class VALLEBrain(sb.Brain):
         prompt, prompt_length = batch.prompt
         batch_size, prompt_max_len, num_tracks = prompt.shape
         nar_track = torch.randint(
-            1, num_tracks, (batch_size,),
-            device=self.device
+            1, num_tracks, (batch_size,), device=self.device
         )
         logits_ar, logits_nar = self.modules.model(
             dec_seq=batch.prompt.data,
             dec_seq_lengths=batch.prompt.lengths,
             prefix_len=batch.prefix_length / prompt_max_len,
-            nar_level_idx=nar_track
+            nar_level_idx=nar_track,
         )
         return logits_ar, logits_nar, nar_track
 
@@ -144,14 +146,16 @@ class VALLEBrain(sb.Brain):
         batch_idx = torch.arange(batch_size, device=prompt.device)
         targets_nar = prompt[batch_idx, 1:, nar_track]
         prompt_max_len = prompt.size(1)
-        length_mask = length_to_mask(prompt_length * prompt_max_len, prompt_max_len)
-        prefix_mask = length_to_mask(prefix_length, prompt_max_len).logical_not()
+        length_mask = length_to_mask(
+            prompt_length * prompt_max_len, prompt_max_len
+        )
+        prefix_mask = length_to_mask(
+            prefix_length, prompt_max_len
+        ).logical_not()
         mask = (length_mask * prefix_mask)[:, 1:]
 
         loss_ar = self.hparams.compute_cost(
-            log_probabilities=logits_ar_sm,
-            targets=targets_ar,
-            mask=mask
+            log_probabilities=logits_ar_sm, targets=targets_ar, mask=mask
         )
         self.loss_metric_ar.append(
             ids=batch.uttid,
@@ -161,9 +165,7 @@ class VALLEBrain(sb.Brain):
             reduction="batch",
         )
         loss_nar = self.hparams.compute_cost(
-            log_probabilities=logits_nar_sm,
-            targets=targets_nar,
-            mask=mask,
+            log_probabilities=logits_nar_sm, targets=targets_nar, mask=mask,
         )
         self.loss_metric_nar.append(
             ids=batch.uttid,
@@ -187,20 +189,17 @@ class VALLEBrain(sb.Brain):
             `None` during the test stage.
         """
         self.offsets = get_offsets(
-            self.hparams.vocab_size,
-            self.hparams.audio_tokens_per_step,
+            self.hparams.vocab_size, self.hparams.audio_tokens_per_step,
         )[None, None, :].to(self.device)
 
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
             metric=self.hparams.compute_cost, batch_eval=True,
         )
         self.loss_metric_ar = sb.utils.metric_stats.MetricStats(
-            metric=self.hparams.compute_cost,
-            batch_eval=True,
+            metric=self.hparams.compute_cost, batch_eval=True,
         )
         self.loss_metric_nar = sb.utils.metric_stats.MetricStats(
-            metric=self.hparams.compute_cost,
-            batch_eval=True,
+            metric=self.hparams.compute_cost, batch_eval=True,
         )
 
         # TOOO: Reestablish evaluation
@@ -290,10 +289,7 @@ class VALLEBrain(sb.Brain):
                 wav = self.create_waveform(audio_tokens, audio_length)
                 wav = wav.squeeze(1)
                 self.save_samples(
-                    batch=batch,
-                    wav=wav,
-                    length=audio_length,
-                    stage=stage
+                    batch=batch, wav=wav, length=audio_length, stage=stage
                 )
                 self.evaluation_metric.append(
                     ids=batch.uttid,
@@ -377,13 +373,16 @@ class VALLEBrain(sb.Brain):
         prefix_items = undo_padding_tensor(prefix.int(), prefix_length)
         inference_results = [
             self.modules.model.inference(
-                prefix=prefix_item.unsqueeze(0),
-                opts=self._get_inference_opts()
-            )            
+                prefix=prefix_item.unsqueeze(0), opts=self._get_inference_opts()
+            )
             for prefix_item in prefix_items
         ]
         inferred_tokens = [
-            result[0][0] if result[0] else torch.zeros(1000, self.hparams.audio_tokens_per_step, device=self.device)
+            result[0][0]
+            if result[0]
+            else torch.zeros(
+                1000, self.hparams.audio_tokens_per_step, device=self.device
+            )
             for result in inference_results
         ]
         audio, audio_length = batch_pad_right(inferred_tokens)
@@ -392,8 +391,12 @@ class VALLEBrain(sb.Brain):
         return audio, audio_length
 
     def _get_inference_opts(self):
-        idx = torch.arange(self.hparams.model_vocab_size, device=self.device)[None, :]
-        tracks = torch.arange(self.hparams.audio_tokens_per_step, device=self.device)[:, None]
+        idx = torch.arange(self.hparams.model_vocab_size, device=self.device)[
+            None, :
+        ]
+        tracks = torch.arange(
+            self.hparams.audio_tokens_per_step, device=self.device
+        )[:, None]
         track_start = (
             self.hparams.text_num_tokens
             + self.hparams.special_num_tokens
@@ -407,10 +410,7 @@ class VALLEBrain(sb.Brain):
             | (idx == self.hparams.eos_index)
         ).logical_not()
         return self.hparams.inference_opts(
-            masks={
-                self.hparams.bos_index: mask
-            },
-            device=self.device,
+            masks={self.hparams.bos_index: mask}, device=self.device,
         )
 
     def save_samples(self, batch, wav, length, stage):
@@ -438,7 +438,7 @@ class VALLEBrain(sb.Brain):
             Path(self.hparams.output_folder) / "eval" / stage.name.lower()
         )
         if epoch is not None:
-            output_folder = output_folder / str(epoch)        
+            output_folder = output_folder / str(epoch)
         output_folder.mkdir(exist_ok=True, parents=True)
         return output_folder
 
@@ -484,12 +484,11 @@ def dataio_prepare(hparams):
     label_encoder = hparams["label_encoder"]
     input_feature = INPUT_FEATURE_MAP[hparams["input"]]
     offsets = get_offsets(
-        hparams["vocab_size"],
-        hparams["audio_tokens_per_step"]
+        hparams["vocab_size"], hparams["audio_tokens_per_step"]
     ).unsqueeze(0)
     if hparams["flip_layers"]:
         offsets = offsets.flip(-1)
-    
+
     tokens_loader = hparams.get("tokens_loader")
     spk_prompt_length = hparams["spk_prompt_length"]
 
@@ -520,13 +519,15 @@ def dataio_prepare(hparams):
             offset = 0
         # Retrieve the embedding value from the dataset
         audio_spk_prompt, _ = pad_right_to(
-            audio[offset:offset + spk_prompt_length],
-            (spk_prompt_length, audio.size(1))
+            audio[offset : offset + spk_prompt_length],
+            (spk_prompt_length, audio.size(1)),
         )
         return audio_spk_prompt
 
     @sb.utils.data_pipeline.takes("uttid", "tokens", "spk_prompt")
-    @sb.utils.data_pipeline.provides("audio", "prefix", "prompt", "prefix_length", "length")
+    @sb.utils.data_pipeline.provides(
+        "audio", "prefix", "prompt", "prefix_length", "length"
+    )
     def prompt_pipeline(id, tokens, spk_prompt):
         audio = tokens_loader.tokens_by_uttid(
             id, num_codebooks=hparams["audio_tokens_per_step"]
@@ -575,7 +576,7 @@ def dataio_prepare(hparams):
         "audio",
         "prompt",
         "prefix_length",
-        "length"
+        "length",
     ]
     if use_spk_emb:
         prepared_features.append("spk_emb")
@@ -595,14 +596,9 @@ def dataio_prepare(hparams):
         )
         spk_idx, spk_samplers = group_by_speaker(dynamic_dataset, hparams)
         spk_sample = {}
-        spk_prompt_pipeline = partial(
-            spk_prompt,
-            spk_sample=spk_sample,
-        )
+        spk_prompt_pipeline = partial(spk_prompt, spk_sample=spk_sample,)
         dynamic_dataset.add_dynamic_item(
-            func=spk_prompt_pipeline,
-            takes=["uttid"],
-            provides=["spk_prompt"],
+            func=spk_prompt_pipeline, takes=["uttid"], provides=["spk_prompt"],
         )
         dynamic_dataset.add_dynamic_item(prompt_pipeline)
         resample_fn[dataset] = partial(
@@ -612,8 +608,7 @@ def dataio_prepare(hparams):
             dataset=dynamic_dataset,
             spk_samplers=spk_samplers,
         )
-        resample_fn[dataset](epoch=0)    
-
+        resample_fn[dataset](epoch=0)
 
         datasets[dataset] = dynamic_dataset
         hparams[f"{dataset}_dataloader_opts"]["shuffle"] = False
@@ -824,14 +819,18 @@ def apply_overfit_test(hparams, dataset):
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
-            dataset_eval.set_output_keys(list(dataset_valid.pipeline.output_mapping.keys()))
+            dataset_eval.set_output_keys(
+                list(dataset_valid.pipeline.output_mapping.keys())
+            )
             result = dataset_train, dataset_eval, dataset_eval
         elif isinstance(dataset, dict):
             dataset_train = apply_overfit_test(hparams, dataset["train"])
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
-            dataset_eval.set_output_keys(list(dataset["valid"].pipeline.output_mapping.keys()))
+            dataset_eval.set_output_keys(
+                list(dataset["valid"].pipeline.output_mapping.keys())
+            )
 
             result = {
                 "train": dataset_train,
@@ -921,7 +920,6 @@ if __name__ == "__main__":
         overrides=overrides,
     )
 
-
     # Data preparation, to be run on only one process.
     from libritts_prepare import prepare_libritts
 
@@ -950,7 +948,6 @@ if __name__ == "__main__":
                 "model_name": hparams["model"].__class__.__name__,
             },
         )
-
 
     # We can now directly create the datasets for training, valid, and test
     datasets = dataio_prepare(hparams)

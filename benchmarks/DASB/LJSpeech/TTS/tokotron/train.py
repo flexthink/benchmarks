@@ -275,7 +275,9 @@ class TokotronBrain(sb.Brain):
             self.is_evaluating = True
 
         self.audio_token_offsets = self.get_token_offsets()
-        self.token_model_kwargs = getattr(self.hparams, "token_model_kwargs", {})
+        self.token_model_kwargs = getattr(
+            self.hparams, "token_model_kwargs", {}
+        )
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.
@@ -448,7 +450,9 @@ class TokotronBrain(sb.Brain):
         with torch.no_grad():
             if self.audio_token_offsets is not None:
                 audio = clean_padding(audio + self.audio_token_offsets, length)
-            wav = self.modules.tokenizer.tokens_to_sig(audio, **self.token_model_kwargs)
+            wav = self.modules.tokenizer.tokens_to_sig(
+                audio, **self.token_model_kwargs
+            )
             wav = clean_padding(wav, length)
             wav = wav.to(self.device)
         return wav
@@ -580,16 +584,12 @@ def dataio_prepare(hparams):
             "num_codebooks": get_selected_layer_indexes(hparams)
         }
     else:
-        tokens_loader_kwargs = {
-            "num_codebooks": audio_tokens_per_step
-        }
+        tokens_loader_kwargs = {"num_codebooks": audio_tokens_per_step}
 
     @sb.utils.data_pipeline.takes("uttid")
     @sb.utils.data_pipeline.provides("audio_pad", "audio_bos")
     def audio_pipeline(id):
-        audio = tokens_loader.tokens_by_uttid(
-            id, **tokens_loader_kwargs
-        )
+        audio = tokens_loader.tokens_by_uttid(id, **tokens_loader_kwargs)
         audio_pad = feature_pad_to(
             audio, len(audio) + silence_padding_len, silence_padding
         )
@@ -699,10 +699,7 @@ def get_selected_layer_indexes(hparams):
     available_layers = hparams.get("available_speech_model_layers")
     if not (selected_layers and available_layers):
         return None
-    layer_idx = [
-        available_layers.index(layer)
-        for layer in selected_layers
-    ]
+    layer_idx = [available_layers.index(layer) for layer in selected_layers]
     return layer_idx
 
 
@@ -770,14 +767,18 @@ def apply_overfit_test(hparams, dataset):
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
-            dataset_eval.set_output_keys(list(dataset_valid.pipeline.output_mapping.keys()))
+            dataset_eval.set_output_keys(
+                list(dataset_valid.pipeline.output_mapping.keys())
+            )
             result = dataset_train, dataset_eval, dataset_eval
         elif isinstance(dataset, dict):
             dataset_train = apply_overfit_test(hparams, dataset["train"])
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
             )
-            dataset_eval.set_output_keys(list(dataset["valid"].pipeline.output_mapping.keys()))
+            dataset_eval.set_output_keys(
+                list(dataset["valid"].pipeline.output_mapping.keys())
+            )
             result = {
                 "train": dataset_train,
                 "valid": dataset_eval,
