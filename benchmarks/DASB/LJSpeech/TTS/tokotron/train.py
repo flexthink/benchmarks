@@ -88,6 +88,7 @@ class TokotronBrain(sb.Brain):
         if self.use_spk_emb:
             emb = {"spk": batch.spk_emb.data.squeeze(1)}
 
+        audio = self.transform_audio(audio)
         predictions = self.modules.model(
             input_tokens=tokens,
             input_length=tokens_length,
@@ -210,6 +211,8 @@ class TokotronBrain(sb.Brain):
         batch = batch.to(self.device)
         predictions, features = predictions
         _, _, audio_tgt, audio_tgt_length = features
+
+        audio_tgt = self.transform_audio(audio_tgt)
         loss_details = self.hparams.compute_cost(
             predictions=predictions,
             audio=audio_tgt,
@@ -279,6 +282,8 @@ class TokotronBrain(sb.Brain):
         self.token_model_kwargs = getattr(
             self.hparams, "token_model_kwargs", {}
         )
+
+        self.transform_audio = getattr(self.hparams, "transform_audio", torch.nn.Identity())
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of an epoch.

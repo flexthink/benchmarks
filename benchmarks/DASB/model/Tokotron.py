@@ -25,10 +25,11 @@ from speechbrain.utils.data_utils import batch_pad_right
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.embedding import Embedding
 from speechbrain.nnet.linear import Linear
-from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss
+from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss, bce_loss
 from speechbrain.dataio.dataio import length_to_mask
 from speechbrain.utils.data_utils import concat_padded_features
 from speechbrain.nnet.schedulers import NoamScheduler
+from model.sq_codec import decimal_to_ternary_matrix
 
 from enum import Enum
 from collections import namedtuple
@@ -157,8 +158,10 @@ class TokotronTransformerDecoder(nn.Module):
         show_inference_progress=True,
         audio_token_shift=0,
         multihead_input=True,
+        multihead_output=True,
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
+        out_proj=None,
     ):
         super().__init__()
         self.num_tokens = num_tokens
@@ -182,9 +185,11 @@ class TokotronTransformerDecoder(nn.Module):
             if self.representation_mode == RepresentationMode.DISCRETE
             else audio_dim
         )
-        self.out_proj = Linear(
-            input_size=d_model, n_neurons=self.out_dim * tokens_per_step,
-        )
+        if out_proj is None:
+            out_proj = Linear(
+                input_size=d_model, n_neurons=self.out_dim * tokens_per_step,
+            )
+        self.out_proj = out_proj
         self.gate = Linear(input_size=d_model, n_neurons=1)
         if audio_emb is None:
             if self.representation_mode == RepresentationMode.DISCRETE:
@@ -222,6 +227,7 @@ class TokotronTransformerDecoder(nn.Module):
         self.multihead_input = multihead_input
         self.d_model = d_model
         self.d_model_sqrt = math.sqrt(d_model)
+        self.multihead_output = multihead_output
 
     def decode(
         self,
@@ -371,16 +377,17 @@ class TokotronTransformerDecoder(nn.Module):
             pos_embs_src,
         )
         lin_out = self.out_proj(dec_out)
-        batch_size, audio_max_len, num_tokens = lin_out.shape
-        lin_out_heads = lin_out.reshape(
-            batch_size,
-            audio_max_len,
-            self.tokens_per_step,
-            num_tokens // self.tokens_per_step,
-        )
+        if self.multihead_output:
+            batch_size, audio_max_len, num_tokens = lin_out.shape
+            lin_out = lin_out.reshape(
+                batch_size,
+                audio_max_len,
+                self.tokens_per_step,
+                num_tokens // self.tokens_per_step,
+            )
         gate_out = self.gate(dec_out).squeeze(-1)
         return TokotronDecoderOutput(
-            lin_out_heads,
+            lin_out,
             gate_out,
             dec_self_attn,
             dec_attn,
@@ -398,6 +405,68 @@ class TokotronTransformerDecoder(nn.Module):
             The embedding tensor with which to initialize
         """
         self.audio_emb.initialize(emb)
+
+
+class TernaryPredictionHead(nn.Module):
+    """An alternative prediction head that predicts a fixed number of ternary digits
+    for each position (as used in SQ-Codec)
+    
+    Arguments
+    ---------
+    d_model : int
+        The model dimension
+    num_positions : int
+        the number of positions
+    """
+    def __init__(self, d_model, num_positions):
+        super().__init__()
+        self.num_positions = num_positions
+        self.d_model = d_model
+        self.num_positions = num_positions
+        self.lin_p = Linear(
+            input_size=d_model,
+            n_neurons=num_positions * 2
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        """Computes the forward pass
+        
+        Arguments
+        ---------
+        x : torch.Tensor
+            The decoder output (Batch x Length x d_model)
+
+        Returns
+        -------
+        p : torch.Tensor
+            A tensor of shape (Batch x Length x num_positions x 2) where
+            p[:, :, :, 0] -> the probability of the ternary digit being at least 0
+            p[:, :, :, 0] -> the probability of the ternary digit being at least 1
+        """
+        batch_size, max_len, _ = x.shape
+        p = self.sigmoid(self.lin_p(x))
+        p = p.reshape(batch_size, max_len, self.num_positions, 2)
+        return p
+
+
+class TernaryInput(nn.Module):
+    def __init__(self, emb_size, num_positions):
+        super().__init__()
+        self.num_positions = num_positions
+        self.in_proj = Linear(
+            input_size=num_positions * 3,
+            n_neurons=emb_size,
+        )
+
+    def forward(self, x):
+        batch_size, max_len = x.shape[:2]
+        x_onehot = torch.nn.functional.one_hot(
+            (x + 1).long(),
+            3
+        ).reshape(batch_size, max_len, self.num_positions * 3)
+        in_proj = self.in_proj(x_onehot.float())
+        return in_proj
 
 
 class TokotronTransformerAutoregressiveInference(nn.Module):
@@ -439,6 +508,8 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
         show_inference_progress=True,
+        transform_audio=None,
+        feed_audio=None
     ):
         super().__init__()
         self.decoder = None
@@ -451,6 +522,10 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
         self.representation_mode = RepresentationMode(representation_mode)
         self.audio_dim = audio_dim
         self.show_inference_progress = show_inference_progress
+        if transform_audio is None:
+            transform_audio = nn.Identity()
+        self.transform_audio = transform_audio
+        self.feed_audio = feed_audio
 
     def bind(self, model):
         """Binds this inference implementation to a model
@@ -522,6 +597,7 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
                 steps_range = tqdm(steps_range, desc="Inference")
             for idx in steps_range:
                 # One autoregressive step
+                audio = self.transform_audio(audio)
                 step_out = self.decoder.forward(
                     enc_out=enc_out,
                     src_length=length,
@@ -530,7 +606,9 @@ class TokotronTransformerAutoregressiveInference(nn.Module):
                 )
                 audio_out = step_out.out
 
-                if self.representation_mode == RepresentationMode.DISCRETE:
+                if self.feed_audio:
+                    audio_out = self.feed_audio(audio_out)
+                elif self.representation_mode == RepresentationMode.DISCRETE:
                     audio_out = audio_out.argmax(-1)
 
                 # The model outputs predictions without BOS. Add the BOS back for the
@@ -701,11 +779,13 @@ class TokotronTransformerModel(nn.Module):
         eos_mode=EosMode.GATE,
         inference=None,
         audio_token_shift=0,
-        decoder_mode=DecoderMode.AUTOREGRESSIVE,
         scale_factor=5.0,
         representation_mode=RepresentationMode.DISCRETE,
         audio_dim=1024,
         emb=None,
+        audio_emb=None,
+        out_proj=None,
+        multihead_input=False
     ):
         super().__init__()
         self.in_emb = Embedding(
@@ -724,11 +804,6 @@ class TokotronTransformerModel(nn.Module):
             activation=activation,
             normalize_before=True,
         )
-        self.decoder_mode = DecoderMode(decoder_mode)
-        audio_emb = None
-        if self.decoder_mode == DecoderMode.FORWARD:
-            audio_emb = nn.Identity()
-            audio_emb_size = d_model
         self.decoder = TokotronTransformerDecoder(
             num_tokens=audio_num_tokens + self.audio_token_shift,
             tokens_per_step=audio_tokens_per_step,
@@ -748,9 +823,11 @@ class TokotronTransformerModel(nn.Module):
             gate_threshold=gate_threshold,
             gate_offset=gate_offset,
             audio_token_shift=audio_token_shift,
-            multihead_input=self.decoder_mode == DecoderMode.AUTOREGRESSIVE,
+            multihead_input=multihead_input,
+            multihead_output=out_proj is None,
             representation_mode=representation_mode,
             audio_dim=audio_dim,
+            out_proj=out_proj,
         )
         self.bos_idx = bos_idx
         self.attention_type = attention_type
@@ -904,17 +981,11 @@ class TokotronTransformerModel(nn.Module):
             src_key_padding_mask=src_key_padding_mask,
             pos_embs=pos_embs_encoder,
         )
-        if self.decoder_mode == DecoderMode.AUTOREGRESSIVE:
-            tgt = audio
-            tgt_length = audio_length
-        else:
-            tgt = scale(enc_out, self.scale_factor)
-            tgt_length = input_length
         enc_out = self.add_emb(enc_out, emb)
         dec_out = self.decoder(
             enc_out=enc_out,
-            tgt=tgt,
-            tgt_length=tgt_length,
+            tgt=audio,
+            tgt_length=audio_length,
             src_length=input_length,
             src_key_padding_mask=src_key_padding_mask,
             pos_embs_src=pos_embs_encoder,
@@ -1218,6 +1289,7 @@ class TokotronLoss(nn.Module):
         representation_mode=RepresentationMode.DISCRETE,
         audio_clip_min=-10.0,
         audio_clip_max=10.0,
+        multihead_output=True,
     ):
         super().__init__()
         self.guided_attention_weight = guided_attention_weight
@@ -1246,6 +1318,7 @@ class TokotronLoss(nn.Module):
             self.register_buffer("audio_eos", audio_eos)
         self.audio_clip_min = audio_clip_min
         self.audio_clip_max = audio_clip_max
+        self.multihead_output = multihead_output
 
     def forward(
         self,
@@ -1278,9 +1351,12 @@ class TokotronLoss(nn.Module):
             out = out.log_softmax(dim=-1)
         batch_size, out_len, heads, tok_dim = out.shape
         max_len = out_len - 1
-        out_reshaped = (
-            out.transpose(1, 2).reshape(batch_size * heads, out_len, tok_dim)
-        )[:, :max_len]
+        if self.multihead_output:
+            out_reshaped = (
+                out.transpose(1, 2).reshape(batch_size * heads, out_len, tok_dim)
+            )[:, :max_len]
+        else:
+            out_reshaped = out
         if self.eos_mode == EosMode.TOKEN:
             # NOTE: Shift only the tokens, but not EOS
             padding_lengths = torch.ones(batch_size, device=audio.device)
@@ -1294,7 +1370,10 @@ class TokotronLoss(nn.Module):
             )
 
         tok_len = audio.size(1)
-        if self.representation_mode == RepresentationMode.DISCRETE:
+        if not self.multihead_output:
+            audio_reshaped = audio
+            lengths_reshaped = audio_length
+        elif self.representation_mode == RepresentationMode.DISCRETE:
             audio_reshaped = audio.transpose(1, 2).reshape(
                 batch_size * heads, max_len
             )
@@ -1313,18 +1392,21 @@ class TokotronLoss(nn.Module):
                 )
 
         audio_reshaped = audio_reshaped[:, :max_len]
-        lengths_reshaped = (
-            audio_length.unsqueeze(-1)
-            .expand(batch_size, heads)
-            .reshape(batch_size * heads)
-        )
+        if self.multihead_output:        
+            lengths_reshaped = (
+                audio_length.unsqueeze(-1)
+                .expand(batch_size, heads)
+                .reshape(batch_size * heads)
+            )
+        else:
+            lengths_reshaped = audio_length            
         seq_loss = self.seq_cost(
             out_reshaped[:, :tok_len],
             audio_reshaped,
             length=lengths_reshaped,
             reduction=reduction,
         )
-        if reduction == "batch":
+        if reduction == "batch" and self.multihead_output:
             seq_loss = seq_loss.reshape(batch_size, heads).mean(-1)
         lengths_abs = audio_length * out_len
 
@@ -2252,3 +2334,177 @@ def use_silence_padding(dataloader_opts, silence_token, token_keys):
             token_collate_fn, silence_token=silence_token, token_keys=token_keys
         ),
     }
+
+
+def ternary_matrix_to_decimal(matrix):
+    """
+    Convert a B*D*N ternary matrix to a 2D array of decimal numbers for each batch.
+
+    Arguments
+    ---------
+    matrix : numpy.ndarray
+        A 3D numpy array of shape (B, D, N), where B is the batch size, D is the number
+        of ternary digits, and N is the number of ternary numbers in each batch.
+
+    Returns
+    -------
+    numpy.ndarray
+        A 2D numpy array of shape (B, N), where each value represents the decimal
+        equivalent of the corresponding ternary number in the input matrix.
+    """
+    (
+        B,
+        D,
+        N,
+    ) = (
+        matrix.shape
+    )  # B is the batch size, D is the number of digits, N is the number of ternary numbers
+    powers_of_three = 3 **torch.arange(D)  # [3^0, 3^1, ..., 3^(D-1)]
+
+    # Reshape powers_of_three for broadcasting: [D] -> [1, D, 1]
+    powers_of_three = powers_of_three[:, None]  # Shape [D, 1]
+
+    # Compute dot product using broadcasting: matrix * powers_of_three along D axis
+    decimals = torch.sum(matrix * powers_of_three, axis=1)  # Sum along the D axis
+
+    return decimals
+
+
+def logits_to_ternary(logits):
+    """Converts a tensor with two logits to a ternary matrix
+
+    Arguments
+    ---------
+    logits : torch.Tensor
+        The logits (Batch x Length x num_positions x 2)
+
+    Returns
+    -------
+    result : torch.Tensor
+        The corresponding ternary matrix
+    """
+    gte0 = logits[..., 0] >= 0.5
+    gte1 = logits[..., 1] >= 0.5
+    val_minus_1 = torch.tensor(-1, device=logits.device)
+    val_zero = torch.tensor(0, device=logits.device)
+    val_plus_1 = torch.tensor(1, device=logits.device)
+    return torch.where(
+        gte0,
+        torch.where(
+            gte1,
+            val_plus_1,
+            val_zero
+        ),
+        val_minus_1
+    )
+
+def ternary_matrix_to_decimal(matrix):
+    """
+    Convert a B*D*N ternary matrix to a 2D array of decimal numbers for each batch.
+
+    Arguments
+    ---------
+    matrix : numpy.ndarray
+        A 3D numpy array of shape (B, D, N), where B is the batch size, D is the number
+        of ternary digits, and N is the number of ternary numbers in each batch.
+
+    Returns
+    -------
+    numpy.ndarray
+        A 2D numpy array of shape (B, N), where each value represents the decimal
+        equivalent of the corresponding ternary number in the input matrix.
+    """
+    (
+        B,
+        D,
+        N,
+    ) = (
+        matrix.shape
+    )  # B is the batch size, D is the number of digits, N is the number of ternary numbers
+    powers_of_three = 3 ** torch.arange(D, device=matrix.device)  # [3^0, 3^1, ..., 3^(D-1)]
+
+    # Reshape powers_of_three for broadcasting: [D] -> [1, D, 1]
+    powers_of_three = powers_of_three[:, None]  # Shape [D, 1]
+
+    # Compute dot product using broadcasting: matrix * powers_of_three along D axis
+    decimals = torch.sum(matrix * powers_of_three, axis=1)  # Sum along the D axis
+
+    return decimals
+
+
+def ternary_to_decimal(ternary, n_codebook=4):
+    """Converts ternary digits to their decimal equivalent
+    
+    Arguments
+    ---------
+    ternary : torch.Tensor
+        (Batch x Length x num_positions) - ternary digits
+    n_codebooks : torch.Tensor
+        The number of coedbooks"""
+    chunks = ternary.chunk(n_codebook, dim=1)
+    codec_ls = []
+    # TODO: Vectorize
+    for i, chunk in enumerate(chunks):
+        chunk = chunk + 1
+        tmp_codec = ternary_matrix_to_decimal(chunk)
+        codec_ls.append(tmp_codec)
+    codec_ls = torch.stack(codec_ls)
+    return codec_ls.permute(1, 2, 0)
+
+
+def ternary_logits_to_tokens(logits):
+    """Converts ternary logits to tokens (as used for SQ-Codec)
+
+    Arguments
+    ---------
+    logits : torch.Tensor
+        The logits
+
+    Returns
+    -------
+    tokens : torch.Tensor
+        Token IDs
+    """
+    ternary_matrix = logits_to_ternary(logits)
+    tokens = ternary_to_decimal(ternary_matrix.transpose(-1, -2))
+    return tokens
+
+
+def tokens_to_ternary(tokens):
+    """Converts a sequence of tokens to a ternary matrix
+    
+    Arguments
+    ---------
+    tokens : torch.Tensor
+        A (Batch x Length x Codebooks) tensor of tokens
+    
+    Returns
+    -------
+    result : t""" 
+    batch_size = tokens.size(0)
+    n_codebook = tokens.size(2)
+    tokens = tokens.view(batch_size, -1, n_codebook).permute(2, 0, 1).clone()
+    ternary_matrix = torch.cat([
+        decimal_to_ternary_matrix(item, D=9) - 1
+        for item in tokens
+    ], dim=1)
+    return ternary_matrix.transpose(1, 2)
+
+
+def ternary_loss(predictions, targets, length=None, reduction="mean"):
+    tgt_gte0 = targets >= 0.
+    tgt_gte1 = targets >= 1.
+    loss_gte0 = bce_loss(
+        predictions[:, :, :, 0],
+        tgt_gte0,
+        length=length,
+        reduction=reduction,
+    )
+    loss_gte1 = bce_loss(
+        predictions[:, :, :, 0],
+        tgt_gte1,
+        length=length,
+        reduction=reduction,
+    )
+    loss = loss_gte0 + loss_gte1
+    return loss

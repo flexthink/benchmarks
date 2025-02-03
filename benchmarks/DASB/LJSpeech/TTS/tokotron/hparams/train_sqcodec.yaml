@@ -140,6 +140,8 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
+transform_audio: !name:model.Tokotron.tokens_to_ternary
+
 ####################### Model parameters ###########################
 # Transformer
 d_model: 512
@@ -154,7 +156,7 @@ audio_num_tokens: 19683
 audio_emb_size: 1024
 audio_emb_freeze: False
 audio_emb_pretrained: False
-audio_token_offsets: True
+audio_token_offsets: False
 text_num_tokens: 39
 phn_num_tokens: 52
 input_num_tokens: !apply:speechbrain.utils.hparams.choice
@@ -162,7 +164,9 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
     choices:
         text: !ref <text_num_tokens>
         phonemes: !ref <phn_num_tokens>
-audio_tokens_per_step: 1
+audio_tokens_per_step: 4
+ternary_num_digits: 9
+ternary_num_positions: !ref <audio_tokens_per_step> * <ternary_num_digits>
 bandwidth: 1.5
 attention_type: regularMHA
 
@@ -187,6 +191,29 @@ model: !new:model.Tokotron.TokotronTransformerModel  # yamllint disable-line rul
     audio_emb_freeze: !ref <audio_emb_freeze>
     max_audio_length: !ref <max_audio_length>
     infer_max_audio_length: !ref <infer_max_audio_length>
+    audio_emb: !ref <audio_emb>
+    out_proj: !ref <out_proj>
+    multihead_input: False
+    inference: !ref <inference>
+
+inference: !new:model.Tokotron.TokotronTransformerAutoregressiveInference
+    gate_offset: !ref <gate_offset>
+    gate_threshold: !ref <gate_threshold>
+    tokens_per_step: !ref <audio_tokens_per_step>
+    bos_idx: !ref <bos_index>
+    audio_token_shift: 0
+    max_steps: !ref <infer_max_audio_length>
+    representation_mode: !ref <representation_mode>
+    transform_audio: !name:model.Tokotron.tokens_to_ternary
+    feed_audio: !name:model.Tokotron.ternary_logits_to_tokens
+
+audio_emb: !new:model.Tokotron.TernaryInput
+    emb_size: !ref <audio_emb_size>
+    num_positions: !ref <ternary_num_positions>
+
+out_proj: !new:model.Tokotron.TernaryPredictionHead
+    d_model: !ref <d_model>
+    num_positions: !ref <ternary_num_positions>
 
 tokenizer: !new:utils.tokenizer_interface.SQCodecTokenizer
     save_path: !ref <sq_codec_save_path>
@@ -209,6 +236,8 @@ compute_cost: !new:model.Tokotron.TokotronLoss
     gate_gamma: !ref <gate_loss_gamma>
     gate_max_weight: !ref <gate_loss_max_weight>
     silence_padding: !ref <silence_padding>
+    seq_cost: !name:model.Tokotron.ternary_loss
+    multihead_output: False
 
 lr_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr>
