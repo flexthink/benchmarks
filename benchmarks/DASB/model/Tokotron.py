@@ -785,7 +785,7 @@ class TokotronTransformerModel(nn.Module):
         emb=None,
         audio_emb=None,
         out_proj=None,
-        multihead_input=False
+        multihead_input=True
     ):
         super().__init__()
         self.in_emb = Embedding(

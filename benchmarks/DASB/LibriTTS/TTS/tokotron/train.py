@@ -353,8 +353,19 @@ class TokotronBrain(sb.Brain):
         if self.checkpointer is not None and not getattr(
             self, "_ckpt_recovered", False
         ):
-            self.checkpointer.recover_if_possible()
+            checkpoint = self.checkpointer.recover_if_possible()
+            if not checkpoint:
+                self.check_init()
             self._ckpt_recovered = True
+
+    def check_init(self):
+        init_from = getattr(self.hparams, "init_from", None)
+        if init_from is not None:
+            init_from_path = Path(init_from)
+            model_path = init_from_path / "model.ckpt"
+            with open(model_path, "rb") as model_file:
+                model_state_dict = torch.load(model_file, map_location=self.device)
+                self.modules.model.load_state_dict(model_state_dict)
 
     @torch.no_grad()
     def evaluate_batch(self, batch, stage):
