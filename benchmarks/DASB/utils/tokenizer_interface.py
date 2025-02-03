@@ -499,7 +499,7 @@ class SQCodecTokenizer(SQCodec, BaseTokenizer):
     @torch.no_grad()
     def tokens_to_sig(self, tokens, **kwargs):
         self.eval()
-        signal = self.decode(tokens.view(tokens.shape[0], -1), **kwargs)
+        signal = self.decode(tokens.reshape(tokens.shape[0], -1), **kwargs)
         return signal.squeeze(1)
 
     @torch.no_grad()
