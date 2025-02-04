@@ -361,11 +361,13 @@ class TokotronBrain(sb.Brain):
     def check_init(self):
         init_from = getattr(self.hparams, "init_from", None)
         if init_from is not None:
+            logger.info("Initializing with pre-trained weights from %s", init_from)
             init_from_path = Path(init_from)
             model_path = init_from_path / "model.ckpt"
             with open(model_path, "rb") as model_file:
                 model_state_dict = torch.load(model_file, map_location=self.device)
                 self.modules.model.load_state_dict(model_state_dict)
+            logger.info("Successfully initialized with pre-trained weights from %s", init_from)
 
     @torch.no_grad()
     def evaluate_batch(self, batch, stage):
