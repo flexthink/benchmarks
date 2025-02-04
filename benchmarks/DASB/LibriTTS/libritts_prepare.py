@@ -105,7 +105,7 @@ def prepare_libritts(
     if valid_split:
         wav_list = prepare_split(data_folder, valid_split)
         # TODO add better way to speedup evaluation
-        if len(wav_list) > max_valid_size:
+        if max_valid_size is not None and len(wav_list) > max_valid_size:
             wav_list = random.sample(wav_list, max_valid_size)
         create_json(wav_list, save_json_valid, sample_rate, model_name)
     if test_split:

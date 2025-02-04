@@ -51,6 +51,7 @@ if __name__ == "__main__":
             "save_json_test": hparams["test_json"],
             "sample_rate": hparams["sample_rate"],
             "skip_prep": hparams["skip_prep"],
+            "max_valid_size": None
         },
     )
 
