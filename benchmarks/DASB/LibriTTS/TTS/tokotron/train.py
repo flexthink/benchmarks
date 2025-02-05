@@ -827,7 +827,10 @@ def read_token_list(file_name):
     result: list
         a list of tokens
     """
-    if not Path(file_name).exists():
+    file_name = Path(file_name)
+    if not file_name.is_absolute():
+        file_name = Path(__file__).parent / "hparams" / file_name
+    if not file_name.exists():
         raise ValueError(f"Token file {file_name} not found")
     with open(file_name) as token_file:
         return [line.strip("\r\n") for line in token_file if line]
