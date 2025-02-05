@@ -333,7 +333,15 @@ class TokotronBrain(sb.Brain):
             model_path = init_from_path / "model.ckpt"
             with open(model_path, "rb") as model_file:
                 model_state_dict = torch.load(model_file, map_location=self.device)
-                self.modules.model.load_state_dict(model_state_dict)
+                tgt_state_dict = self.modules.model.state_dict()
+                ignore_keys = []
+                for k, v in model_state_dict.items():
+                    if k in tgt_state_dict and tgt_state_dict[k].shape != v.shape:
+                        logger.warning("Ignoring shape mismatch for %s", k)
+                        ignore_keys.append(k)
+                for k in ignore_keys:
+                    del model_state_dict[k]
+                self.modules.model.load_state_dict(model_state_dict, strict=False)
             logger.info("Successfully initialized with pre-trained weights from %s", init_from)
 
     @torch.no_grad()
@@ -499,6 +507,9 @@ def dataio_prepare(hparams):
         audio_tokens_per_step = len(hparams["token_model_layers"])
     else:
         audio_tokens_per_step = hparams["audio_tokens_per_step"]
+    layer_idx = None
+    if "speech_model_layers" in hparams:
+        layer_idx = get_selected_layer_indexes(hparams)
     if use_silence_padding:
         if representation_mode == RepresentationMode.DISCRETE:
             silence_padding = get_silence_token(
@@ -514,6 +525,10 @@ def dataio_prepare(hparams):
         )
 
     silence_padding = silence_padding.cpu()
+    if layer_idx:
+        silence_padding = silence_padding[layer_idx]
+    else:
+        silence_padding = silence_padding[:audio_tokens_per_step]
     silence_padding_len = int(math.ceil(hparams["silence_padding"]))
     bos_width = hparams.get("bos_width", 1)
     audio_bos_prefix = (
@@ -525,9 +540,9 @@ def dataio_prepare(hparams):
         )
 
     tokens_loader = hparams.get("tokens_loader")
-    if "speech_model_layers" in hparams:
+    if layer_idx is not None:
         tokens_loader_kwargs = {
-            "num_codebooks": get_selected_layer_indexes(hparams)
+            "num_codebooks": layer_idx
         }
     else:
         tokens_loader_kwargs = {"num_codebooks": audio_tokens_per_step}    
