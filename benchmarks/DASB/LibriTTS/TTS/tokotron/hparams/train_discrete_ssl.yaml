@@ -149,8 +149,8 @@ debug_infer_max_audio_length: 10
 
 # Label encoder
 label_encoder: !new:speechbrain.dataio.encoder.TextEncoder
-token_list_file_text: ./hparams/char_en.txt
-token_list_file_phn: ./hparams/arpabet.txt
+token_list_file_text: char_en.txt
+token_list_file_phn: arpabet.txt
 token_list_file: !apply:speechbrain.utils.hparams.choice
     value: !ref <input>
     choices:
