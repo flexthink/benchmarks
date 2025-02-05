@@ -163,38 +163,6 @@ class TokotronBrain(sb.Brain):
         )
         return spk_emb_pred
 
-    def _get_selected_layer_idx(self):
-        selected_layers = None
-        if (
-            hasattr(self.hparams, "select_layers")
-            and self.hparams.select_layers
-        ):
-            layers = self.hparams.select_layers
-            model_layers_map = {
-                layer: idx
-                for idx, layer in enumerate(self.hparams.token_model_layers)
-            }
-            selected_layers = [model_layers_map[layer] for layer in layers]
-        return selected_layers
-
-    # TODO: Move this elsewhere
-    def select_layers(self, audio_ssl):
-        """Applies layer squishing, if enabled
-
-        Arguments
-        ---------
-        audio_ssl : torch.Tensor
-            SSL features
-
-        Returns
-        -------
-        audio_ssl : torch.Tensor
-            SSL features, squished if enabled
-        """
-        if self.layer_idx:
-            audio_ssl = audio_ssl[:, :, self.layer_idx]
-        return audio_ssl
-
     def compute_objectives(self, predictions, batch, stage):
         """Computes the loss given the predicted and targeted outputs. We here
         do multi-task learning and the loss is a weighted sum of the ctc + seq2seq
@@ -258,7 +226,6 @@ class TokotronBrain(sb.Brain):
             self.modules.vocoder, "model"
         ):
             self.modules.vocoder.model.device = self.device
-        self.layer_idx = self._get_selected_layer_idx()
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
             metric=self.hparams.compute_cost, batch_eval=True,
         )
@@ -558,13 +525,17 @@ def dataio_prepare(hparams):
         )
 
     tokens_loader = hparams.get("tokens_loader")
+    if "speech_model_layers" in hparams:
+        tokens_loader_kwargs = {
+            "num_codebooks": get_selected_layer_indexes(hparams)
+        }
+    else:
+        tokens_loader_kwargs = {"num_codebooks": audio_tokens_per_step}    
 
     @sb.utils.data_pipeline.takes("uttid")
     @sb.utils.data_pipeline.provides("audio_pad", "audio_bos")
     def audio_pipeline(id):
-        audio = tokens_loader.tokens_by_uttid(
-            id, num_codebooks=audio_tokens_per_step
-        )
+        audio = tokens_loader.tokens_by_uttid(id, **tokens_loader_kwargs)
         audio_pad = feature_pad_to(
             audio, len(audio) + silence_padding_len, silence_padding
         )
@@ -811,6 +782,22 @@ def init_sequence_encoder(hparams):
     encoder.update_from_iterable(tokens, sequence_input=False)
     encoder.expect_len(len(tokens) + SPECIAL_TOKEN_COUNT)
     return encoder
+
+
+def get_selected_layer_indexes(hparams):
+    """Finds the layers of selected layers
+
+    Arguments
+    ---------
+    hparams : dict
+        Hyperparameters
+    """
+    selected_layers = hparams.get("speech_model_layers")
+    available_layers = hparams.get("available_speech_model_layers")
+    if not (selected_layers and available_layers):
+        return None
+    layer_idx = [available_layers.index(layer) for layer in selected_layers]
+    return layer_idx
 
 
 def read_token_list(file_name):
