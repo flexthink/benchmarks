@@ -70,8 +70,8 @@ vocoder_repo_id: !apply:speechbrain.utils.hparams.choice
         hubert: speechbrain/hifigan-hubert-k1000-LibriTTS
         wavlm: speechbrain/hifigan-wavlm-k1000-LibriTTS
         wav2vec2: speechbrain/hifigan-wav2vec2-k1000-LibriTTS
-ssl_model_layers: [1, 3, 7, 12, 18, 23]
-token_model_layers: !ref <ssl_model_layers>
+available_speech_model_layers: [1, 3, 7, 12, 18, 23]
+speech_model_layers: !ref <available_speech_model_layers>
 select_layers: null
 token_offset: 1
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
@@ -166,15 +166,6 @@ gate_offset: !apply:Tokotron.distance_diff_loss_ramp
 silence_padding: !ref <gate_offset>
 use_silence_padding: True
 
-# Guides
-guides_enabled: False
-guides_start_epoch: 40
-guides_spk: False
-guides_spk_discrete: True
-guides_spk_loss_weight: 0.2
-guides_asr: True
-guides_asr_loss_weight: 0.1
-
 
 # Token model (pretrained)
 ssl_model: !apply:speechbrain.utils.hparams.choice
@@ -200,14 +191,6 @@ ssl_model: !apply:speechbrain.utils.hparams.choice
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
     savedir: !ref <pretrained_model_save_folder>/ecapa
-
-spk_emb_discrete_guide: !name:speechbrain.inference.interfaces.foreign_class
-    source: !ref <spk_emb_discrete_src>
-    savedir: !ref <pretrained_model_save_folder>/ecapa-<ssl_model_type>
-    pymodule_file: custom_interface.py
-    classname: DiscreteSpkEmb
-    overrides:
-        ssl_layer_num_selected: !ref <token_model_layers>
 
 # Dataloader options
 train_dataloader_opts:
@@ -240,19 +223,8 @@ sample_dataloader_opts:
             value: !ref <pad_index>
 
 token_model_kwargs:
-    SSL_layers: !ref <token_model_layers>
+    SSL_layers: !ref <speech_model_layers>
 
-extract_features_opts:
-    dataloader_opts:
-        batch_size: !ref <extract_features_batch_size>
-        num_workers: !ref <num_workers>
-    ssl_model: !ref <ssl_model>
-    ssl_model_layers: !ref <ssl_model_layers>
-    token_model_layers: !ref <token_model_layers>
-    sample_rate: !ref <sample_rate>
-    model_sample_rate: !ref <model_sample_rate>
-    spk_emb_model: !ref <spk_emb_model>
-    data_folder_alignments: !ref <data_folder_alignments>
 ####################### Model parameters ###########################
 # Transformer
 d_model: 512
