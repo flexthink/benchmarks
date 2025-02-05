@@ -89,8 +89,12 @@ class TokotronBrain(sb.Brain):
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device
-        wav = self.modules.tokenizer.tokens_to_sig(audio)
-        clean_padding_(wav, length)
+        with torch.no_grad():
+            wav = self.modules.tokenizer.tokens_to_sig(
+                audio, **self.token_model_kwargs
+            )
+            clean_padding_(wav, length)
+            wav = wav.to(self.device)
         return wav
 
     def compute_forward(self, batch, stage):
@@ -279,6 +283,9 @@ class TokotronBrain(sb.Brain):
         elif stage == sb.Stage.TEST:
             self.evaluator.on_evaluate_start(stage, epoch)
             self.is_evaluating = True
+        self.token_model_kwargs = getattr(
+            self.hparams, "token_model_kwargs", {}
+        )
 
     def is_eval_epoch(self, epoch):
         """Determines whether or not evaluation should be performed
