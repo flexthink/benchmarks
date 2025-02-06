@@ -14,7 +14,7 @@ Authors
 
 import logging
 import torch
-from typing import Dict, Tuple, Optional
+from typing import Tuple, Optional
 from speechbrain.dataio.dataio import length_to_mask
 
 from torch import Tensor
@@ -144,6 +144,13 @@ class ValleLM(nn.Module):
             Lengths of condition part in dec_seq (B,).
         nar_level_idx : int
             the index of the non-autoregressive level to train
+
+        Returns
+        -------
+        logits_ar : torch.Tensor
+            Autoregressive predictions
+        logits_nar : torch.Tensor
+            Non-autoregressive predictions
         """
 
         assert dec_seq.dim() == 3
@@ -202,11 +209,7 @@ class ValleLM(nn.Module):
 
     @torch.no_grad()
     def inference(
-        self,
-        prefix,
-        opts,
-        enc_seq=None,
-        suffix=None,
+        self, prefix, opts, enc_seq=None, suffix=None,
     ):
         """Vall-E Inference.
 
@@ -221,6 +224,13 @@ class ValleLM(nn.Module):
         suffix : torch.Tensor
             suffix part of dec_seq (B, T, nq),
             usually the target sequence for teacher-forcing.
+
+        Returns
+        -------
+        gen_tokens_list : list
+            Generated tokens
+        gen_scores_list : list
+            The scores associated with the generated tokens
         """
 
         # (1) initialization
@@ -263,8 +273,7 @@ class ValleLM(nn.Module):
         mask = modality_index_to_mask(modality_index, opts)
         mask_cache = []
         modality_tokens = torch.tensor(
-            list(opts.masks.keys()),
-            device=prefix.device
+            list(opts.masks.keys()), device=prefix.device
         )
 
         for step in range(maxlen):
@@ -292,14 +301,11 @@ class ValleLM(nn.Module):
 
             # (3.3) detect modality swtich
             mask_cache.append(mask.clone())
-            modality_change_mask = torch.isin(
-                prev_tok[:, 0],
-                modality_tokens
-            )
+            modality_change_mask = torch.isin(prev_tok[:, 0], modality_tokens)
             # Note: The ESPNET VALL-E had
             # modality_change_mask = torch.logical_and(
             #    prev_tok[:, 0] >= 32, prev_tok[:, 0] < 64,
-            #)
+            # )
             if torch.any(modality_change_mask):
                 modality_index = torch.where(
                     modality_change_mask, prev_tok[:, 0], modality_index,
@@ -434,14 +440,33 @@ class ValleLM(nn.Module):
 
 
 class ResidualAttentionBlock(nn.Module):
+    """A VALL-E residual attention block
+
+    Arguments
+    ---------
+    n_state : int
+        The number of states
+    n_head : int
+        The number of heads
+    cross_attention : bool
+        Whether to use cross-attention
+    causal : bool
+        Whether to operate in causal mode (i.e. avoid attending
+        to future steps)
+    qk_norm : bool
+        Whether to normalize queries and keys
+    dropout : float
+        The dropout probability
+    """
+
     def __init__(
         self,
-        n_state: int,
-        n_head: int,
-        cross_attention: bool = False,
-        causal: bool = False,
-        qk_norm: bool = False,
-        dropout: float = 0.0,
+        n_state,
+        n_head,
+        cross_attention=False,
+        causal=False,
+        qk_norm=False,
+        dropout=0.0,
     ):
         super().__init__()
 
@@ -471,12 +496,20 @@ class ResidualAttentionBlock(nn.Module):
         self.mlp_dropout = nn.Dropout(p=dropout)
 
     def forward(
-        self,
-        x: Tensor,
-        xa: Optional[Tensor] = None,
-        mask: Optional[Tensor] = None,
-        kv_cache: Optional[dict] = None,
+        self, x, xa=None, mask=None, kv_cache=None,
     ):
+        """The forward pass implementation
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            the feature tensor
+        xa : torch.Tensor
+            The tensor for cross-attention
+        mask : torch.Tensor
+            The attention mask to be applied
+
+        """
         x = x + self.attn_dropout(
             self.attn(self.attn_ln(x), mask=mask, kv_cache=kv_cache)
         )
@@ -491,15 +524,37 @@ class ResidualAttentionBlock(nn.Module):
 class TransformerDecoder(nn.Module):
     def __init__(
         self,
-        n_ctx: int,
-        n_state: int,
-        n_head: int,
-        n_layer: int,
-        causal: bool = True,
-        qk_norm: bool = False,
-        dropout: float = 0.0,
+        n_ctx,
+        n_state,
+        n_head,
+        n_layer,
+        causal=True,
+        qk_norm=False,
+        dropout=0.0,
         layer_class=ResidualAttentionBlock,
     ):
+        """A custom transformer decoder implementation for VALL-E
+
+        Arguments
+        ---------
+        n_ctx : int
+            The context length
+        n_state : int
+            The number of states
+        n_head : int
+            The number of heads
+        n_layer : int
+            The number of layers
+        causal : bool
+            Whether to operate in causal mode (i.e. avoid attending
+            to future steps)
+        qk_norm : bool
+            Whether to normalize queries and keys
+        dropout : float
+            The dropout probability
+        layer_class : type
+            The layer type to be used
+        """
         super().__init__()
 
         self.pos_emb = nn.Embedding(n_ctx, n_state)
@@ -523,11 +578,24 @@ class TransformerDecoder(nn.Module):
         self.kv_cache = None
 
     def forward(
-        self,
-        x: Tensor,
-        mask: torch.Tensor = None,
-        kv_cache: Optional[dict] = None,
+        self, x, mask=None, kv_cache=None,
     ):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            the feature tensor
+        mask : torch.Tensor
+            The attention mask to be applied
+        kv_cache : dict
+            The key/value cache (for inference)
+
+        Returns
+        -------
+        result : torch.Tensor
+            The decoder output
+        """
         if self.causal and mask is not None:
             raise ValueError("Causal Transformer dones't allow mask")
 
@@ -541,17 +609,33 @@ class TransformerDecoder(nn.Module):
         return x
 
     def init(self):
+        """Initializes the key/value cache and the hooks to update it"""
         self.kv_cache, self.hooks = install_kv_cache_hook(self, self.kv_cache)
         return self.kv_cache
 
-    def reset(self,):
+    def reset(self):
+        """Resets the key-value cache"""
         for hook in self.hooks:
             hook.remove()
         self.kv_cache = None
 
 
 class LayerNorm(nn.LayerNorm):
-    def forward(self, x: Tensor) -> Tensor:
+    """A layer normalziation wrapper"""
+
+    def forward(self, x):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            The tensor to be normalized
+
+        Returns
+        -------
+        result : torch.Tensor
+            A normalzied tensor
+        """
         return super().forward(x.float()).type(x.dtype)
 
 
@@ -565,14 +649,35 @@ class Linear(nn.Linear):
 
 
 class ResidualAttentionBlockAdaLN(ResidualAttentionBlock):
+    """"The Vall-E Adaptive Residual Attention Block
+
+    Arguments
+    ---------
+    n_state : int
+        The number of states
+    n_head : int
+        The number of states
+    n_head : int
+        The number of attention heads
+    cross_attention : bool
+        The number of attention heads
+    causal : bool
+        Whether to operate in causal mode (i.e. avoid attending
+        to future steps)
+    qk_norm : bool
+        Queries/Keys Normalization
+    dropout : float
+        The dropout probability
+    """
+
     def __init__(
         self,
-        n_state: int,
-        n_head: int,
-        cross_attention: bool = False,
-        causal: bool = False,
-        qk_norm: bool = False,
-        dropout: float = 0.0,
+        n_state,
+        n_head,
+        cross_attention=False,
+        causal=False,
+        qk_norm=False,
+        dropout=0.0,
     ):
         super(ResidualAttentionBlockAdaLN, self).__init__(
             n_state=n_state,
@@ -587,13 +692,23 @@ class ResidualAttentionBlockAdaLN(ResidualAttentionBlock):
         self.mlp_ln = AdaLN(n_state)
 
     def forward(
-        self,
-        x: Tensor,
-        level: Tensor,
-        xa: Optional[Tensor] = None,
-        mask: Optional[Tensor] = None,
-        kv_cache: Optional[dict] = None,
+        self, x, level, xa=None, mask=None, kv_cache=None,
     ):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            The source tensor
+        level : torch.Tensor
+            The level numbers for each batch element
+        xa : torch.Tensor
+            The sequence for cross attention
+        mask : torch.Tensor
+            The attention mask
+        kv_cache : dict
+            The key/value cache (for inference)
+        """
         x = x + self.attn_dropout(
             self.attn(self.attn_ln(x, level), mask=mask, kv_cache=kv_cache)
         )
@@ -610,17 +725,40 @@ class ResidualAttentionBlockAdaLN(ResidualAttentionBlock):
 class ValleNARDecoder(TransformerDecoder):
     def __init__(
         self,
-        n_level: int,
-        n_ctx: int,
-        n_state: int,
-        n_head: int,
-        n_layer: int,
-        causal: bool = False,
-        qk_norm: bool = False,
-        dropout: float = 0.0,
+        n_level,
+        n_ctx,
+        n_state,
+        n_head,
+        n_layer,
+        causal=False,
+        qk_norm=False,
+        dropout=0.0,
         layer_class=ResidualAttentionBlockAdaLN,
     ):
+        """The VALL-E non-autoregressive decoder
 
+        Arguments
+        ---------
+        n_level : int
+            The number of levels
+        n_ctx : int
+            The context length
+        n_state : int
+            The number of states
+        n_head : int
+            The number of attention heads
+        n_layer : int
+            The number of layers
+        causal : bool
+            Whether to operate in causal mode (i.e. avoid attending
+            to future steps)
+        qk_norm : bool
+            Queries/Keys Normalization
+        dropout : float
+            The dropout probability
+        layer_class : type
+            The layer class to use
+        """
         super().__init__(
             n_ctx=n_ctx,
             n_state=n_state,
@@ -636,12 +774,21 @@ class ValleNARDecoder(TransformerDecoder):
         self.ln = AdaLN(n_state)
 
     def forward(
-        self,
-        x: Tensor,
-        level: Tensor,
-        mask: Tensor = None,
-        kv_cache: Optional[dict] = None,
+        self, x, level, mask=None, kv_cache=None,
     ):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            The source tensor
+        level : torch.Tensor
+            The level numbers for each batch element
+        mask : torch.Tensor
+            The attention mask
+        kv_cache : dict
+            The key/value cache (for inference)
+        """
         if self.causal and mask is not None:
             raise ValueError("mask is not allowed when causal")
 
@@ -658,13 +805,25 @@ class ValleNARDecoder(TransformerDecoder):
 
 
 class MultiHeadAttention(nn.Module):
+    """A Multi-Head Attention implementation
+
+    Arguments
+    ---------
+    n_state : int
+        The number of states
+    n_head : int
+        The number of attention heads
+    causal : bool
+        Whether to operate in causal mode (i.e. avoid attending
+        to future steps)
+    qk_norm : bool
+        Queries/Keys Normalization
+    dropout : float
+        The dropout probability
+    """
+
     def __init__(
-        self,
-        n_state: int,
-        n_head: int,
-        causal: bool = False,
-        qk_norm: bool = False,
-        dropout: float = 0.0,
+        self, n_state, n_head, causal=False, qk_norm=False, dropout=0.0,
     ):
         super().__init__()
         assert n_state % n_head == 0
@@ -681,23 +840,22 @@ class MultiHeadAttention(nn.Module):
             self.q_norm = LayerNorm(n_state // n_head)
             self.k_norm = LayerNorm(n_state // n_head)
 
-        if not hasattr(F, "scaled_dot_product_attention"):
-            raise ValueError("Install torch 2.0.1+ to support Flash Attention")
-
-        try:
-            from flash_attn import flash_attn_func
-
-            self.flash_attn_func = flash_attn_func
-        except ImportError:
-            self.flash_attn_func = None
-
     def forward(
-        self,
-        x: Tensor,
-        xa: Optional[Tensor] = None,
-        mask: Optional[Tensor] = None,
-        kv_cache: Optional[dict] = None,
+        self, x, xa=None, mask=None, kv_cache=None,
     ):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            The source tensor
+        xa : torch.Tensor
+            The sequence for cross attention
+        mask : torch.Tensor
+            The attention mask
+        kv_cache : dict
+            The key/value cache (for inference)
+        """
         q = self.query(x)
 
         if kv_cache is None or xa is None or self.key not in kv_cache:
@@ -714,9 +872,23 @@ class MultiHeadAttention(nn.Module):
 
         return self.out(wv)
 
-    def qkv_attention(
-        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None
-    ):
+    def qkv_attention(self, q, k, v, mask=None):
+        """Computes self-attention
+
+        Arguments
+        ---------
+        q : torch.Tensor
+            The queries tensor
+        k : torch.Tensor
+            The keys tensor
+        v : torch.Tensor
+            The values tensor
+
+        Returns
+        -------
+        wv : torch.Tensor
+            The attention output
+        """
         if self.causal and mask is not None:
             raise ValueError("mask is not allowed when the attention is causal")
 
@@ -732,16 +904,6 @@ class MultiHeadAttention(nn.Module):
         if self.qk_norm:
             q = self.q_norm(q)
             k = self.k_norm(k)
-
-        if self.flash_attn_func is not None and mask is None and self.training:
-            wv = self.flash_attn_func(
-                q.transpose(1, 2),
-                k.transpose(1, 2),
-                v.transpose(1, 2),
-                dropout_p=self.dropout,
-                causal=causal,
-            ).flatten(start_dim=2)
-        else:
             wv = (
                 F.scaled_dot_product_attention(
                     q, k, v, mask, is_causal=causal, dropout_p=self.dropout
@@ -754,6 +916,17 @@ class MultiHeadAttention(nn.Module):
 
 
 class AdaLN(nn.Module):
+    """Adaptive Layer Normalization, a Layer Norm implementation
+    that learns an affine transformation based on the level
+    embedding
+
+    Arguemnts
+    ---------
+    n_state : int
+        The number of states
+    eps : float
+        The layer norm epsilon parameter"""
+
     def __init__(self, n_state, eps=1e-5):
         super().__init__()
         self.weight = nn.Linear(n_state, n_state, bias=False)
@@ -764,7 +937,16 @@ class AdaLN(nn.Module):
         self.n_state = n_state
         self.eps = eps
 
-    def forward(self, x: Tensor, level_emb: Tensor):
+    def forward(self, x, level_emb):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            The tensor
+        level_emb : torch.Tensor
+            The level embedding
+        """
         w = self.weight(level_emb).unsqueeze(1)
         b = self.bias(level_emb).unsqueeze(1)
         x = nn.functional.layer_norm(x, (self.n_state,), eps=self.eps)
@@ -773,6 +955,22 @@ class AdaLN(nn.Module):
 
 
 def install_kv_cache_hook(model, cache):
+    """Sets up the key/value cache hook
+
+    Arguments
+    ---------
+    model : torch.nn.Module
+        The model
+    cache : dict
+        The cache content
+
+    Returns
+    -------
+    cache : torch.Tensor
+        The cache dictionary (new or copied)
+    hooks : torch.Tensor
+        The installed hooks
+    """
     cache = {**cache} if cache is not None else {}
     hooks = []
 
@@ -794,12 +992,7 @@ def install_kv_cache_hook(model, cache):
 
 
 def logits_to_tokens(
-    logits: torch.Tensor,
-    opts: SpeechLMInferenceOptions,
-    mask: torch.Tensor,
-    search_algo: str = None,
-    allow_eos: bool = True,
-    nq_level: int = None,
+    logits, opts, mask, search_algo=None, allow_eos=True, nq_level=None,
 ):
     """
     Select the generated tokens and their scores based on logits prediction.
@@ -818,6 +1011,13 @@ def logits_to_tokens(
         whether to allow end-of-sentence prediction
     nq_level : int, optional
         if not None, only conpute the specified codec level nq.
+
+    Returns
+    -------
+    gen_token_idx : torch.Tensor
+        The token indexes
+    gen_token_score : torch.Tensor
+        The token scores
     """
 
     assert logits.dim() == 4
