@@ -152,7 +152,7 @@ class VALLEBrain(sb.Brain):
             prompt_length * prompt_max_len, prompt_max_len
         )
         prefix_mask = length_to_mask(
-            prefix_length * prompt_max_len, prompt_max_len
+            prefix_length, prompt_max_len
         ).logical_not()
         mask = (length_mask * prefix_mask)[:, 1:]
 
