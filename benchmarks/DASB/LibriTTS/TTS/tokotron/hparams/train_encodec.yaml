@@ -101,7 +101,6 @@ gate_loss_max_weight: 1.
 # Inference parameters
 inference_mode: autoregressive
 eos_mode: gate
-decoder_mode: autoregressive
 scale_factor: 4
 
 # Embedding Injection
@@ -233,7 +232,6 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
     eos_mode: !ref <eos_mode>
     infer_max_audio_length: !ref <infer_max_audio_length>
     audio_token_shift: !ref <audio_token_shift>
-    decoder_mode: !ref <decoder_mode>
     scale_factor: !ref <scale_factor>
     emb: !ref <emb>
 

@@ -188,7 +188,7 @@ model: !new:model.Tokotron.TokotronTransformerModel  # yamllint disable-line rul
 
 tokenizer: !new:utils.tokenizer_interface.SpeechTokenizerWrapper
     source: fnlp/SpeechTokenizer  # Only the 24kHz version supports mono audio
-    save_path: !ref <save_folder>
+    save_path: !ref <pretrained_model_save_folder>
 
 modules:
     model: !ref <model>
