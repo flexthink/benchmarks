@@ -240,7 +240,7 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
 
 tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
     source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
-    save_path: !ref <save_folder>
+    save_path: !ref <prepared_models_folder>
     sample_rate: !ref <sample_rate>
     bandwidth: !ref <bandwidth>
     flat_embeddings: False
