@@ -152,7 +152,7 @@ class VALLEBrain(sb.Brain):
             prompt_length * prompt_max_len, prompt_max_len
         )
         prefix_mask = length_to_mask(
-            prefix_length, prompt_max_len
+            prefix_length * prompt_max_len, prompt_max_len
         ).logical_not()
         mask = (length_mask * prefix_mask)[:, 1:]
 
@@ -480,6 +480,7 @@ def dataio_prepare(hparams):
         "valid": hparams["valid_json"],
         "test": hparams["test_json"],
     }
+    
     label_encoder = hparams["label_encoder"]
     input_feature = INPUT_FEATURE_MAP[hparams["input"]]
     offsets = get_offsets(
