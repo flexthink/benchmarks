@@ -176,7 +176,7 @@ class VALLEBrain(sb.Brain):
             mask=mask,
             reduction="batch",
         )
-        loss = loss_ar + loss_nar
+        loss = 0.5 * (loss_ar + loss_nar)
         return loss
 
     def on_stage_start(self, stage, epoch):
