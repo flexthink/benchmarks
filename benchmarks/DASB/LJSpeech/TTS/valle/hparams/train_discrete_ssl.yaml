@@ -64,6 +64,7 @@ token_offset: 1
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
 splits: ["train", "valid", "test"]
+split_ratio: [90, 5, 5]
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters
@@ -88,8 +89,8 @@ special_tokens: ["<bos>", "<eos>", "<eot>"]
 special_num_tokens: 4
 
 # stages related parameters
-lr: 0.0005 # @orion_step1: --lr~"loguniform(0.00001,0.005)"
-lr_warmup_steps: 10000
+lr: 0.001 # @orion_step1: --lr~"loguniform(0.00001,0.1)"
+lr_warmup_steps: 70000
 lr_annealing_mode: step
 guided_attention_weight: 50.0
 guided_attention_sigma: 0.5
