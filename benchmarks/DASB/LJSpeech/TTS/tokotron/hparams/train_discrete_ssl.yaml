@@ -233,7 +233,6 @@ model: !new:model.Tokotron.TokotronTransformerModel # yamllint disable-line rule
     eos_mode: !ref <eos_mode>
     infer_max_audio_length: !ref <infer_max_audio_length>
     audio_token_shift: !ref <audio_token_shift>
-    decoder_mode: !ref <decoder_mode>
     scale_factor: !ref <scale_factor>
     representation_mode: discrete
 
