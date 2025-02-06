@@ -23,6 +23,7 @@ data_folder: !PLACEHOLDER
 cached_data_folder: !PLACEHOLDER # e.g., path/to/cache
 data_folder_alignments: null # e.g., /path/to/LibriSpeech
 prepare_save_folder: !ref <cached_data_folder>
+pretrained_model_save_folder: !ref <prepare_save_folder>
 prepare_archive_path: null
 prepare_skip_ignore_folders: False
 data_mode: lite
