@@ -93,13 +93,13 @@ special_num_tokens: 5
 
 # stages related parameters
 lr: 0.001 # @orion_step1: --lr~"loguniform(0.00001,0.1)"
-lr_warmup_steps: 10000
+lr_warmup_steps: 70000
 lr_annealing_mode: step
 betas: [0.9, 0.95]
 
 # Feature parameters
 sample_rate: 24000
-model_sample_rate: 24000
+model_sample_rate: 16000
 max_audio_length: 2000
 text_max_length: 500
 spk_prompt_length: 150
