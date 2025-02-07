@@ -13,8 +13,9 @@ train_log: !ref <output_folder>/train_log.txt
 testing: True # If set to True, the test evlaution is done, otherwise skipped.
 
 # Data files
+cached_data_folder: !PLACEHOLDER
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
-prepare_save_folder: !ref <data_folder>/prepared
+prepare_save_folder: !ref <cached_data_folder>
 pretrained_model_save_folder: !ref <prepare_save_folder>
 representation_mode: discrete
 vocoder_model_name: vocos
