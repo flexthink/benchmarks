@@ -521,7 +521,11 @@ def dataio_prepare(hparams):
         if representation_mode == RepresentationMode.DISCRETE:
             silence_padding = get_silence_token(
                 hparams["tokenizer"],
-                model_kwargs=hparams.get("token_model_kwargs"),
+                num_codebooks=(
+                    hparams["speech_model_layers"]
+                    if "speech_model_layers" in hparams
+                    else audio_tokens_per_step
+                )
             )
         else:
             silence_padding = get_silence_repr(hparams["ssl_model"],)
