@@ -567,7 +567,12 @@ def dataio_prepare(hparams):
         and representation_mode == RepresentationMode.DISCRETE
     ):
         silence_token = get_silence_token(
-            hparams[model_key], model_kwargs=hparams.get("token_model_kwargs"),
+            hparams[model_key],
+            num_codebooks=(
+                hparams["speech_model_layers"]
+                if "speech_model_layers" in hparams
+                else audio_tokens_per_step
+            )
         )
         if silence_token.dim() == 2:
             silence_token = silence_token.squeeze(-1)
