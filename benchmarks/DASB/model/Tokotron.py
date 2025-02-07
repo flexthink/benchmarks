@@ -2142,7 +2142,8 @@ def get_silence_token(
     sample_length=100000,
     unsqueeze=False,
     device=None,
-    model_kwargs=None,
+    num_codebooks=None,
+
 ):
     """Attempts to find out the silence tokens for a given model,
     if applicable
@@ -2157,8 +2158,8 @@ def get_silence_token(
         Whether to add an extra dimension to the audio (needed for DAC)
     device : str | torch.Device
         The device to use
-    model_kwargs : dict
-        Additional arguments to pass to the model
+    num_codebooks : int | list
+        The number of codebooks or the codebooks to use
 
     Returns
     -------
@@ -2171,8 +2172,6 @@ def get_silence_token(
     """
     if device is None:
         device = next(model.parameters()).device
-    if model_kwargs is None:
-        model_kwargs = {}
 
     audio = torch.zeros(1, sample_length, device=device)
     if unsqueeze:
@@ -2180,7 +2179,7 @@ def get_silence_token(
     length = torch.ones(1, device=device)
     model_training = model.training
     model.eval()
-    tokens = model.sig_to_tokens(audio, length)
+    tokens = model.sig_to_tokens(audio, length, num_codebooks=num_codebooks)
     if model_training:
         model.train()
     tokens = tokens.squeeze(0)
