@@ -18,6 +18,7 @@ testing: True # If set to True, the test evlaution is done, otherwise skipped.
 # Data files
 data_folder: !PLACEHOLDER
 cached_data_folder: !PLACEHOLDER
+alignments_folder: null
 prepare_save_folder: !ref <cached_data_folder>
 data_folder_alignments: null # e.g., /path/to/LibriSpeech
 pretrained_model_save_folder: !ref <prepare_save_folder>

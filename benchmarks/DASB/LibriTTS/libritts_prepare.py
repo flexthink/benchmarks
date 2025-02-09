@@ -11,12 +11,14 @@ import random
 
 import torch
 import torchaudio
+import re
 from tqdm import tqdm
 
 from speechbrain.inference.text import GraphemeToPhoneme
 from speechbrain.utils.data_utils import get_all_files
 from speechbrain.utils.logger import get_logger
 from speechbrain.utils.text_to_sequence import _g2p_keep_punctuations
+from pathlib import Path
 
 logger = get_logger(__name__)
 LIBRITTS_URL_PREFIX = "https://www.openslr.org/resources/60/"
@@ -38,6 +40,7 @@ def prepare_libritts(
     seed=1234,
     model_name=None,
     max_valid_size=500,
+    alignments_folder=None,
     skip_prep=False,
 ):
     """
@@ -75,6 +78,8 @@ def prepare_libritts(
         Seed value
     model_name : str
         Model name (used to prepare additional model specific data)
+    alignments_path : None
+        The path to alignments files
     skip_prep: Bool
         If True, skip preparation.
 
@@ -101,16 +106,16 @@ def prepare_libritts(
     # If specific splits are provided, creates data manifest files accordingly
     if train_split:
         wav_list = prepare_split(data_folder, train_split)
-        create_json(wav_list, save_json_train, sample_rate, model_name)
+        create_json(wav_list, save_json_train, sample_rate, data_folder, alignments_folder, model_name)
     if valid_split:
         wav_list = prepare_split(data_folder, valid_split)
         # TODO add better way to speedup evaluation
         if max_valid_size is not None and len(wav_list) > max_valid_size:
             wav_list = random.sample(wav_list, max_valid_size)
-        create_json(wav_list, save_json_valid, sample_rate, model_name)
+        create_json(wav_list, save_json_valid, sample_rate, data_folder, alignments_folder, model_name)
     if test_split:
         wav_list = prepare_split(data_folder, test_split)
-        create_json(wav_list, save_json_test, sample_rate, model_name)
+        create_json(wav_list, save_json_test, sample_rate, data_folder, alignments_folder, model_name)
 
     if skip(save_json_train, save_json_valid, save_json_test):
         logger.info("Preparation completed.")
@@ -124,12 +129,12 @@ def prepare_libritts(
         data_split = split_sets(wav_list, split_ratio)
         # Creating json files
         create_json(
-            data_split["train"], save_json_train, sample_rate, model_name
+            data_split["train"], save_json_train, sample_rate, alignments_folder, model_name
         )
         create_json(
-            data_split["valid"], save_json_valid, sample_rate, model_name
+            data_split["valid"], save_json_valid, sample_rate, alignments_folder, model_name
         )
-        create_json(data_split["test"], save_json_test, sample_rate, model_name)
+        create_json(data_split["test"], save_json_test, sample_rate, alignments_folder, model_name)
 
 
 def prepare_split(data_folder, split_list):
@@ -172,7 +177,7 @@ def prepare_split(data_folder, split_list):
     return wav_list
 
 
-def create_json(wav_list, json_file, sample_rate, model_name=None):
+def create_json(wav_list, json_file, sample_rate, data_folder, alignments_folder=None, model_name=None):
     """
     Creates the json file given a list of wav files.
     Arguments
@@ -183,6 +188,10 @@ def create_json(wav_list, json_file, sample_rate, model_name=None):
         The path of the output json file
     sample_rate : int
         The sample rate to be used for the dataset
+    data_folder : str
+        The path to LibriTTS
+    alignments_folder : str
+        The path to LibriTTS alignments
     model_name : str
         Model name (used to prepare additional model specific data)
     """
@@ -250,6 +259,10 @@ def create_json(wav_list, json_file, sample_rate, model_name=None):
             "label": normalized_text,
             "segment": True if "train" in json_file else False,
         }
+        if alignments_folder is not None:
+            alignments_file_name = get_alignment_path(data_folder, alignments_folder, wav_file)
+            alignments = parse_alignments(alignments_file_name)
+            json_dict[uttid].update(alignments)
 
         # Characters are used for Tacotron2, phonemes may be needed for other models
         if model_name not in ["Tacotron2", "HiFi-GAN"] and g2p is not None:
@@ -262,6 +275,39 @@ def create_json(wav_list, json_file, sample_rate, model_name=None):
         json.dump(json_dict, json_f, indent=2)
 
     logger.info(f"{json_file} successfully created!")
+
+
+def get_alignment_path(data_folder, alignments_folder, file_name):
+    """Returns the path in the LibriSpeech-Alignments dataset
+    corresponding to the specified file path in LibriSpeech
+
+    Arguments
+    ---------
+    data_folder: str
+        the path to LibriSpeech
+    alignments_folder: str
+        the path to LibriSpeech-Alignments
+    file_name: str
+        the file name within LibriSpeech
+
+    Returns
+    -------
+    file_name: str
+        the alignment file path
+    """
+    file_name = Path(file_name)
+    data_folder = Path(data_folder)
+    if file_name.parts[0] == "{data_root}":
+        file_name_rel = file_name.relative_to("{data_root}")
+    else:
+        file_name_rel = file_name.relative_to(data_folder)
+    data_slice = file_name_rel.parts[0]
+
+    textgrid_folder = file_name_rel.relative_to(Path(data_slice) / "LibriTTS" / data_slice).parent.parent
+    textgrid_file_name = f"{file_name_rel.stem}.TextGrid"
+    textgrid_path = Path(alignments_folder) / data_slice / textgrid_folder / textgrid_file_name
+
+    return textgrid_path
 
 
 def skip(*filenames):
@@ -329,3 +375,124 @@ def check_folders(*folders):
         if not os.path.exists(folder):
             return False
     return True
+
+def parse_alignments(file_name):
+    """Parses a given LibriSpeech-Alignments TextGrid file and
+    converts the results to the desired format (to be used in JSON
+    metadata)
+
+    Arguments
+    ---------
+    file_name : path-like
+        the file name of the TextGrid file
+
+    Returns
+    -------
+    details: dict
+        the metadata details
+    """
+    try:
+        import textgrids
+    except ImportError:
+        logger.error(
+            "Parsing LibriSpeech-alignments requires the"
+            "praat-textgrids package"
+        )
+        raise
+    if not file_name.exists():
+        return {
+            "has_alignments": False,
+            "phn": [],
+            "phn_stress": [],
+            "phn_start": [],
+            "phn_end": [],
+            "phn_count": 0,
+            "wrd": [],
+            "wrd_start": [],
+            "wrd_end": [],
+            "wrd_count": 0,
+            "unk_count": None
+        }
+
+    text_grid = textgrids.TextGrid()
+    text_grid.read(file_name)
+    word_intervals = [
+        {**word, "label": word["label"].upper()}
+        for word in text_grid.interval_tier_to_array("words")
+    ]
+    phn_intervals = text_grid.interval_tier_to_array("phones")
+    details = {}
+    details.update(intervals_to_dict(word_intervals, "wrd"))
+    phn = intervals_to_dict(phn_intervals, "phn")
+    phn_stress = phn["phn"]
+    phn_nostress = remove_stress_marks(phn_stress)
+    phn["phn"] = phn_nostress
+    phn["phn_stress"] = phn_stress
+    details.update(phn)
+    details["unk_count"] = sum(wrd == "<UNK>" for wrd in details["wrd"])
+    details["has_alignments"] = True
+
+    return details
+
+
+INTERVAL_MAP = [("label", ""), ("begin", "_start"), ("end", "_end")]
+INTERVAL_EMPTY_LABELS = {"", "sil", "sp", "spn"}
+
+
+def intervals_to_dict(intervals, prefix):
+    """
+    Converts a parsed list of intervals from PRAAT TextGrid
+    to a learning-friendly array
+
+    Arguments
+    ---------
+    intervals: list
+        A list of raw TextGrid intervals, as returned by
+        TextGrid.interval_tier_to_array
+    prefix: str
+        the prefix to add
+
+    Returns
+    -------
+    result: dict
+        A dictionary of the form
+            {
+                "{prefix}": <list of labels>,
+                "{prefix}_start": <list of begin values>,
+                "{prefix}_end": <list of end values>,
+                "{prefix}_count: <number of intervals>
+            }
+
+    """
+    # Remove meaningless labels
+    intervals_clean = [
+        interval
+        for interval in intervals
+        if interval["label"] not in INTERVAL_EMPTY_LABELS
+    ]
+    result = {
+        f"{prefix}{suffix}": [interval[key] for interval in intervals_clean]
+        for key, suffix in INTERVAL_MAP
+    }
+    # This will map space labels to a single one
+    result[f"{prefix}_count"] = len(intervals_clean)
+    return result
+
+
+RE_STRESS_MARK = re.compile(r"\d$")
+
+
+def remove_stress_marks(phn):
+    """Removes stress marks from a phoneme annotation
+
+    Arguments
+    ---------
+    phn: list
+        a list of phoneme annotations with or without stress marks
+
+    Returns
+    -------
+    result: list
+        a list of phoneme annotations without stress marks
+    """
+    return [RE_STRESS_MARK.sub("", item) for item in phn]
