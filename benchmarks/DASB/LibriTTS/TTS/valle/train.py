@@ -945,6 +945,7 @@ if __name__ == "__main__":
                     else None
                 ),
                 "seed": hparams["seed"],
+                "alignments_folder": hparams.get("alignments_folder"),
                 "model_name": hparams["model"].__class__.__name__,
             },
         )
