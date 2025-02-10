@@ -448,7 +448,7 @@ class VALLEBrain(sb.Brain):
         return loss
 
 
-INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phn"}
+INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phonemes"}
 
 
 def dataio_prepare(hparams):
