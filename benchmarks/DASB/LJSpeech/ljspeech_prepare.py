@@ -53,8 +53,6 @@ def prepare_ljspeech(
     pitch_max_f0=400,
     skip_prep=False,
     use_custom_cleaner=False,
-    extract_features=None,
-    extract_features_opts=None,
     extract_phonemes=False,
     g2p_src="speechbrain/soundchoice-g2p",
     skip_ignore_folders=False,
@@ -404,10 +402,6 @@ def prepare_json(
     pitch_min_f0,
     pitch_max_f0,
     use_custom_cleaner=False,
-    extract_features=None,
-    extract_features_context=None,
-    extract_features_folder=None,
-    extract_features_opts=None,
     extract_phonemes=False,
     g2p_src="speechbrain/soundchoice-g2p",
     device="cpu",
@@ -467,7 +461,7 @@ def prepare_json(
         extract_phonemes = True
     if extract_phonemes:
         logger.info(
-            "Computing phonemes for LJSpeech labels using SpeechBrain G2P. This may take a while."
+            "Computing phonemes for LJSpeech labels using SpeechBrain f This may take a while."
         )
         g2p = GraphemeToPhoneme.from_hparams(
             g2p_src, run_opts={"device": device}
