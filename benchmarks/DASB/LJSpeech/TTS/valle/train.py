@@ -422,7 +422,7 @@ class VALLEBrain(sb.Brain):
         samples = undo_padding_tensor(wav, length)
         for uttid, sample in zip(batch.uttid, samples):
             file_name = output_folder / f"pred_{uttid}.wav"
-            write_audio(file_name, sample, self.hparams.model_sample_rate)
+            write_audio(file_name, sample.detach().cpu(), self.hparams.model_sample_rate)
 
     def save_eval(self, stage):
         """Saves evaluation results
