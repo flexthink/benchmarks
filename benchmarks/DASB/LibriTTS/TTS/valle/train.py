@@ -951,7 +951,6 @@ if __name__ == "__main__":
                 ),
                 "seed": hparams["seed"],
                 "alignments_folder": hparams.get("alignments_folder"),
-                "extract_phonemes": hparams["input"] == "phonemes",
                 "model_name": hparams["model"].__class__.__name__,
             },
         )
