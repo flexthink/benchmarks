@@ -373,8 +373,13 @@ class VALLEBrain(sb.Brain):
         prefix, prefix_length = batch.prefix
         # NOTE: ESPNET VALL-E does not support batched inference
         prefix_items = undo_padding_tensor(prefix.int(), prefix_length)
+        inference = (
+            self.modules.model.module.inference
+            if hasattr(self.modules.model, "module")
+            else self.modules.model.inference
+        )
         inference_results = [
-            self.modules.model.inference(
+            inference(
                 prefix=prefix_item.unsqueeze(0), opts=self._get_inference_opts()
             )
             for prefix_item in prefix_items
