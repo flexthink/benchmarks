@@ -3,7 +3,7 @@
 # Authors:  Artem Ploujnikov
 # ############################################################################
 
-experiment_name: tokotron/discrete_ssl
+experiment_name: valle/discrete_ssl
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 74443
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
@@ -92,18 +92,6 @@ special_num_tokens: 4
 lr: 0.001 # @orion_step1: --lr~"loguniform(0.00001,0.1)"
 lr_warmup_steps: 70000
 lr_annealing_mode: step
-guided_attention_weight: 50.0
-guided_attention_sigma: 0.5
-gate_loss_weight: 1.0
-gate_threshold: 0.5
-gate_loss_beta: 0.2
-gate_loss_gamma: 0.01
-gate_loss_max_weight: 1.
-
-# Inference parameters
-eos_mode: gate
-decoder_mode: autoregressive
-scale_factor: 4
 
 # Feature parameters
 sample_rate: 22050
