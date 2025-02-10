@@ -914,9 +914,14 @@ if __name__ == "__main__":
 
     # Load best checkpoint for evaluation
     if hparams["testing"]:
-        tts_brain.evaluate(
-            test_set=datasets["test"], test_loader_kwargs=test_dataloader_opts,
-        )
+        test_summary_file = Path(hparams["output_folder"]) / "eval" / "test" / "summary.json"
+        if test_summary_file.exists():
+            logging.info("Test run already completed: %s", test_summary_file)
+        else:
+            tts_brain.evaluate(
+                test_set=datasets["test"],
+                test_loader_kwargs=hparams["test_dataloader_opts"],
+            )
 
     # Save final checkpoint (fixed name)
     tts_brain.checkpointer.save_checkpoint(name="latest")
