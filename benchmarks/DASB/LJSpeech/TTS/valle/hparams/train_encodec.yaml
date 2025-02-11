@@ -84,7 +84,7 @@ model_sample_rate: 24000
 max_audio_length: 1000
 text_max_length: 500
 n_ctx: !ref <max_audio_length> + <text_max_length>
-infer_max_audio_length: !ref <max_audio_length>
+infer_top_k: 20
 max_length_ratio: 10.0
 debug_infer_max_audio_length: 10
 
@@ -187,6 +187,7 @@ inference_opts: !name:model.valle.SpeechLMInferenceOptions
     minlenratio: 1.0
     maxlenratio: !ref <max_length_ratio>
     nq: !ref <audio_tokens_per_step>
+    top_k: !ref <infer_top_k>
 
 tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
     source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio

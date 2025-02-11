@@ -78,11 +78,6 @@ class VALLEBrain(sb.Brain):
         if hasattr(self.modules.tokenizer, "codec_vocoder"):
             self.modules.tokenizer.codec_vocoder.to(self.device)
             self.modules.tokenizer.codec_vocoder.device = self.device
-        audio = (
-            (audio - hparams["audio_token_shift"] - self.offsets)
-            .clip(min=0.0)
-            .int()
-        )
         wav = self.modules.tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         return wav
@@ -288,7 +283,7 @@ class VALLEBrain(sb.Brain):
                 audio_tokens, audio_length = self.inference(batch)
                 if self.hparams.flip_layers:
                     audio_tokens = audio_tokens.flip(2)
-                wav = self.create_waveform(audio_tokens, audio_length)
+                wav = self.create_waveform(audio_tokens, audio_length)                
                 wav = wav.squeeze(1)
                 self.save_samples(
                     batch=batch, wav=wav, length=audio_length, stage=stage
@@ -391,7 +386,10 @@ class VALLEBrain(sb.Brain):
             for result in inference_results
         ]
         audio, audio_length = batch_pad_right(inferred_tokens)
-        audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(0)
+        offsets = self.offsets
+        if self.hparams.flip_layers:
+            offsets = offsets.flip(2)
+        audio = (audio - self.hparams.audio_token_shift - offsets).clip(0)
         return audio, audio_length
 
     def _get_inference_opts(self):
@@ -550,7 +548,7 @@ def dataio_prepare(hparams):
         sig = sb.dataio.dataio.read_audio(wav)
         return sig
 
-    dynamic_items = [text_pipeline, tokens_pipeline, prompt_pipeline]
+    dynamic_items = [sig_pipeline, text_pipeline, tokens_pipeline, prompt_pipeline]
 
     init_sequence_encoder(hparams)
     use_spk_emb = hparams.get("use_spk_emb", False)
@@ -572,7 +570,6 @@ def dataio_prepare(hparams):
         dataset_dynamic_items = list(dynamic_items)
         dataset_output_keys = list(output_keys)
         if dataset != "train":
-            dataset_dynamic_items.append(sig_pipeline)
             dataset_output_keys += ["sig", "label_norm_eval", "prefix"]
         dynamic_dataset = sb.dataio.dataset.DynamicItemDataset.from_json(
             json_path=data_info[dataset],
@@ -707,16 +704,22 @@ def apply_overfit_test(hparams, dataset):
     """
     if hparams["overfit_test"]:
         if isinstance(dataset, tuple):
-            dataset_train, _, _ = dataset
+            dataset_train, dataset_valid, _ = dataset
             dataset_train = apply_overfit_test(hparams, dataset_train)
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
+            )
+            dataset_eval.set_output_keys(
+                list(dataset_valid.pipeline.output_mapping.keys())
             )
             result = dataset_train, dataset_eval, dataset_eval
         elif isinstance(dataset, dict):
             dataset_train = apply_overfit_test(hparams, dataset["train"])
             dataset_eval = dataset_train.filtered_sorted(
                 select_n=hparams["overfit_test_sample_count"]
+            )
+            dataset_eval.set_output_keys(
+                list(dataset["valid"].pipeline.output_mapping.keys())
             )
             result = {
                 "train": dataset_train,
@@ -831,6 +834,7 @@ if __name__ == "__main__":
     datasets = dataio_prepare(hparams)
 
     # Apply overfit test settings
+    datasets["train"].data_ids = ["LJ001-0023"]
     datasets = apply_overfit_test(hparams, datasets)
     audio_keys = ["audio_tokens"]
 
@@ -857,7 +861,11 @@ if __name__ == "__main__":
 
     # Load best checkpoint for evaluation
     if hparams["testing"]:
-        tts_brain.evaluate(
-            test_set=datasets["test"],
-            test_loader_kwargs=hparams["test_dataloader_opts"],
-        )
+        test_summary_file = Path(hparams["output_folder"]) / "eval" / "test" / "summary.json"
+        if test_summary_file.exists():
+            logging.info("Test run already completed: %s", test_summary_file)
+        else:
+            tts_brain.evaluate(
+                test_set=datasets["test"],
+                test_loader_kwargs=hparams["test_dataloader_opts"],
+            )
