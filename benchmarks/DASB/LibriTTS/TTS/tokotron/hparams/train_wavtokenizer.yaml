@@ -13,12 +13,12 @@ train_log: !ref <output_folder>/train_log.txt
 testing: True # If set to True, the test evlaution is done, otherwise skipped.
 
 # Data files
+cached_data_folder: !PLACEHOLDER
 data_folder: !PLACEHOLDER # e.g., /path/to/LibriSpeech
-alignments_folder: null
-prepare_save_folder: !ref <data_folder>/prepared
+prepare_save_folder: !ref <cached_data_folder>
 pretrained_model_save_folder: !ref <prepare_save_folder>
 representation_mode: discrete
-vocoder_model_name: encodec
+vocoder_model_name: vocos
 vocoder_model_path: !ref <pretrained_model_save_folder>/<vocoder_model_name>
 prepare_archive_path: null
 prepare_skip_ignore_folders: False
@@ -39,20 +39,20 @@ sample_path: null
 progress_folder: !ref <output_folder>/progress
 progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
+init_from: null
 num_audio_samples: 32
 samples_interval: 5
 
-tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
+tokens_folder: !PLACEHOLDER # Path to the folder where extracted tokens are saved.
 
 tokens_loader: !new:utils.tokens.TokensLoader
     data_path: !ref <tokens_folder>
 
+
 freeze_token_model: True
-token_model_src: "facebook/encodec_24khz"
+model_hub: kyutai/mimi
 g2p_src: flexthink/soundchoice-g2p
 token_offset: 1
-vocoder_type: encodec
-vocoder_src: "charactr/vocos-encodec-24khz"
 vocoder_takes_spk_emb: False
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 spk_emb_shuffle: True
@@ -104,9 +104,6 @@ inference_mode: autoregressive
 eos_mode: gate
 scale_factor: 4
 
-# Embedding Injection
-spk_emb_injection: null
-
 # Beam Search-specific parameters
 min_decode_ratio: 1.0
 max_decode_ratio: 10.0
@@ -122,8 +119,8 @@ debug_infer_max_audio_length: 10
 
 # Label encoder
 label_encoder: !new:speechbrain.dataio.encoder.TextEncoder
-token_list_file_text: ./hparams/char_en.txt
-token_list_file_phn: ./hparams/arpabet.txt
+token_list_file_text: char_en.txt
+token_list_file_phn: arpabet.txt
 token_list_file: !apply:speechbrain.utils.hparams.choice
     value: !ref <input>
     choices:
@@ -131,18 +128,16 @@ token_list_file: !apply:speechbrain.utils.hparams.choice
         phonemes: !ref <token_list_file_phn>
 
 # Gate offset
-gate_offset: !apply:Tokotron.distance_diff_loss_ramp
+gate_offset: !apply:model.Tokotron.distance_diff_loss_ramp
     beta: !ref <gate_loss_beta>
     gamma: !ref <gate_loss_gamma>
     max_weight: !ref <gate_loss_max_weight>
 
-# Guides
-guides_enabled: False
-
-
 silence_padding: !ref <gate_offset>
 use_silence_padding: True
 
+
+# Token model (pretrained)
 spk_emb_model: !name:speechbrain.inference.encoders.MelSpectrogramEncoder.from_hparams
     source: !ref <spk_emb_src>
     savedir: !ref <pretrained_model_save_folder>/ecapa
@@ -178,7 +173,6 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
-
 ####################### Model parameters ###########################
 # Transformer
 d_model: 512
@@ -186,11 +180,12 @@ nhead: 4
 enc_num_layers: 6 # @orion_step1: --enc_num_layers~"choices([3, 6, 12])"
 dec_num_layers: 12 # @orion_step1: --dec_num_layers~"choices([3, 6, 12])"
 d_ffn: 2048
+decoder_chunk_size: -1
 transformer_dropout: 0.2
 target_dropout: 0.2
 activation: !name:torch.nn.GELU
-audio_num_tokens: 1024
-audio_emb_size: 128
+vocab_size: 2048
+audio_emb_size: 1024
 audio_emb_freeze: True
 audio_emb_pretrained: False
 text_num_tokens: 39
@@ -200,8 +195,7 @@ input_num_tokens: !apply:speechbrain.utils.hparams.choice
     choices:
         text: !ref <text_num_tokens>
         phonemes: !ref <phn_num_tokens>
-audio_tokens_per_step: 2
-bandwidth: 1.5
+audio_tokens_per_step: 8
 attention_type: regularMHA
 
 ############################## models ################################
@@ -210,11 +204,10 @@ emb:
         kind: "pretrained"
         dim: 192
         vocoder: !ref <vocoder_takes_spk_emb>
-        injection: !ref <spk_emb_injection>
 
-model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-length
-    input_num_tokens: !ref <input_num_tokens>
-    audio_num_tokens: !ref <audio_num_tokens>
+model: !new:Tokotron.TokotronTransformerModel
+    input_num_tokens: !ref <input_num_tokens> # yamllint disable-line rule:line-length
+    audio_num_tokens: !ref <vocab_size>
     audio_tokens_per_step: !ref <audio_tokens_per_step>
     d_model: !ref <d_model>
     d_ffn: !ref <d_ffn>
@@ -234,29 +227,24 @@ model: !new:Tokotron.TokotronTransformerModel # yamllint disable-line rule:line-
     infer_max_audio_length: !ref <infer_max_audio_length>
     audio_token_shift: !ref <audio_token_shift>
     scale_factor: !ref <scale_factor>
+    representation_mode: !ref <representation_mode>
     emb: !ref <emb>
 
-
-tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer
-    source: facebook/encodec_24khz  # Only the 24kHz version supports mono audio
+tokenizer: !new:utils.tokenizer_interface.MimiTokenizer
+    source: !ref <model_hub>
     save_path: !ref <pretrained_model_save_folder>
-    sample_rate: !ref <sample_rate>
-    bandwidth: !ref <bandwidth>
-    flat_embeddings: False
-    freeze: True
-    renorm_embeddings: False
-
+    num_codebooks: !ref <audio_tokens_per_step>
 
 modules:
     model: !ref <model>
-    compute_cost: !ref <compute_cost>
     tokenizer: !ref <tokenizer>
+    compute_cost: !ref <compute_cost>
 
 # define two optimizers here for two-stage training
 opt_class: !name:torch.optim.Adam
     lr: !ref <lr>
 
-compute_cost: !new:Tokotron.TokotronLoss
+compute_cost: !new:model.Tokotron.TokotronLoss
     guided_attention_weight: !ref <guided_attention_weight>
     guided_attention_sigma: !ref <guided_attention_sigma>
     gate_weight: !ref <gate_loss_weight>
