@@ -834,7 +834,6 @@ if __name__ == "__main__":
     datasets = dataio_prepare(hparams)
 
     # Apply overfit test settings
-    datasets["train"].data_ids = ["LJ001-0023"]
     datasets = apply_overfit_test(hparams, datasets)
     audio_keys = ["audio_tokens"]
 
