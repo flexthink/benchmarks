@@ -37,8 +37,6 @@ from evaluation import SpeechEvaluationMetricStats  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-SPECIAL_TOKEN_COUNT = 1
-
 
 # Brain class for speech recognition training
 class VALLEBrain(sb.Brain):
@@ -638,10 +636,14 @@ def init_sequence_encoder(hparams):
         an encoder instance"""
     encoder = hparams["label_encoder"]
     token_list_file_name = hparams["token_list_file"]
-    tokens = read_token_list(token_list_file_name)
+    tokens = read_token_list(token_list_file_name)    
     encoder.add_unk()
+    for token in hparams["special_tokens"]:
+        token_key = token.replace("<", "").replace(">", "")
+        token_index = hparams[f"{token_key}_index"]
+        encoder.insert_label(token, token_index)
     encoder.update_from_iterable(tokens, sequence_input=False)
-    encoder.expect_len(len(tokens) + SPECIAL_TOKEN_COUNT)
+    encoder.expect_len(len(tokens) + hparams["special_num_tokens"])
     return encoder
 
 
