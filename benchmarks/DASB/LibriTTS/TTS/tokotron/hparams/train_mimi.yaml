@@ -112,7 +112,7 @@ beam_size: 5
 
 # Feature parameters
 sample_rate: 22050
-model_sample_rate: 16000
+model_sample_rate: 24000
 max_audio_length: 5000
 infer_max_audio_length: 1000
 debug_infer_max_audio_length: 10
