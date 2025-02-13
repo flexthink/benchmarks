@@ -1,12 +1,10 @@
 #!/usr/bin/env/python3
-"""Recipe for training a Text-to-Speech system based on tokenized audio
+"""Recipe for training VALL-E
 
-Inspired by WhisperSpeech
-https://github.com/collabora/WhisperSpeech
+Based on ESPNET VALL-E
 
-However, this is not an implementation of WhisperSpeech, but rather
-a radical simplification of it that uses only an acoustic model
-
+Curriculum inspired by Lifeiteng's VALL-E
+https://github.com/lifeiteng/vall-e
 
 Authors
  * Artem Ploujnikov 2024
@@ -98,14 +96,19 @@ class VALLEBrain(sb.Brain):
         batch = batch.to(self.device)
         prompt, prompt_length = batch.prompt
         batch_size, prompt_max_len, num_tracks = prompt.shape
-        nar_track = torch.randint(
-            1, num_tracks, (batch_size,), device=self.device
-        )
+        if self.train_nar:
+            nar_track = torch.randint(
+                1, num_tracks, (batch_size,), device=self.device
+            )
+        else:
+            nar_track = None
         logits_ar, logits_nar = self.modules.model(
             dec_seq=batch.prompt.data,
             dec_seq_lengths=batch.prompt.lengths,
             prefix_len=batch.prefix_length / prompt_max_len,
             nar_level_idx=nar_track,
+            predict_ar=self.train_ar,
+            predict_nar=self.train_nar,
         )
         return logits_ar, logits_nar, nar_track
 
@@ -134,13 +137,8 @@ class VALLEBrain(sb.Brain):
         prompt, prompt_length = batch.prompt
         prefix_length = batch.prefix_length
 
-        logits_ar_sm = self.hparams.log_softmax(logits_ar)
-        logits_nar_sm = self.hparams.log_softmax(logits_nar)
-        batch_size, max_len, _ = prompt.shape
-        targets_ar = prompt[:, 1:, 0]
+        batch_size, prompt_max_len, _ = prompt.shape
         batch_idx = torch.arange(batch_size, device=prompt.device)
-        targets_nar = prompt[batch_idx, 1:, nar_track]
-        prompt_max_len = prompt.size(1)
         length_mask = length_to_mask(
             prompt_length * prompt_max_len, prompt_max_len
         )
@@ -149,28 +147,80 @@ class VALLEBrain(sb.Brain):
         ).logical_not()
         mask = (length_mask * prefix_mask)[:, 1:]
 
-        loss_ar = self.hparams.compute_cost(
-            log_probabilities=logits_ar_sm, targets=targets_ar, mask=mask
-        )
-        self.loss_metric_ar.append(
+        loss_components = []
+
+        if self.train_ar:
+            logits_ar_sm = self.hparams.log_softmax(logits_ar)
+            targets_ar = prompt[:, 1:, 0]
+            loss_ar = self.hparams.compute_cost(
+                log_probabilities=logits_ar_sm, targets=targets_ar, mask=mask
+            )
+            loss_components.append(loss_ar)
+        else:
+            logits_ar_sm, targets_ar = None, None
+        if self.train_nar:
+            logits_nar_sm = self.hparams.log_softmax(logits_nar)
+            targets_nar = prompt[batch_idx, 1:, nar_track]
+            loss_nar = self.hparams.compute_cost(
+                log_probabilities=logits_nar_sm, targets=targets_nar, mask=mask,
+            )
+            loss_components.append(loss_nar)
+        else:
+            logits_nar_sm, targets_nar = None, None
+
+        self.loss_metric.append(
             ids=batch.uttid,
-            log_probabilities=logits_ar_sm,
-            targets=targets_ar,
+            logits_ar=logits_ar_sm,
+            targets_ar=targets_ar,
+            logits_nar=logits_nar_sm,
+            targets_nar=targets_nar,
             mask=mask,
             reduction="batch",
         )
-        loss_nar = self.hparams.compute_cost(
-            log_probabilities=logits_nar_sm, targets=targets_nar, mask=mask,
-        )
-        self.loss_metric_nar.append(
-            ids=batch.uttid,
-            log_probabilities=logits_nar_sm,
-            targets=targets_nar,
-            mask=mask,
-            reduction="batch",
-        )
-        loss = 0.5 * (loss_ar + loss_nar)
+
+        loss = torch.mean(torch.stack(loss_components))
         return loss
+
+    def compute_loss_stats(
+        self,
+        logits_ar,
+        targets_ar,
+        logits_nar,
+        targets_nar,
+        mask,
+        reduction="batch"
+    ):
+        """Computes an autoregressive/non-autoregressive loss breakdown,
+        to be used for metrics/stats
+
+        Arguments
+        ---------
+        logits_ar : torch.Tensor
+            The autoregressive predictions
+        targets_ar : torch.Tensor
+            The targets for autoregressive predictions
+        logits_nar : torch.Tensor
+            The non-autoregressive predictions
+        targets_nar : torch.Tensor
+            The targets for non-autoregressive prediction
+        
+        Returns
+        -------
+        stats: dict
+            statistics
+        """
+        stats = {}
+        if self.train_ar:
+            stats["loss_ar"] = self.hparams.compute_cost(
+                log_probabilities=logits_ar, targets=targets_ar, mask=mask,
+                reduction=reduction,
+            )
+        if self.train_nar:
+            stats["loss_nar"] = self.hparams.compute_cost(
+                log_probabilities=logits_nar, targets=targets_nar, mask=mask,
+                reduction=reduction,
+            )
+        return stats
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch.
@@ -188,16 +238,10 @@ class VALLEBrain(sb.Brain):
         )[None, None, :].to(self.device)
 
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
-            metric=self.hparams.compute_cost, batch_eval=True,
+            metric=self.compute_loss_stats, batch_eval=True,
         )
-        self.loss_metric_ar = sb.utils.metric_stats.MetricStats(
-            metric=self.hparams.compute_cost, batch_eval=True,
-        )
-        self.loss_metric_nar = sb.utils.metric_stats.MetricStats(
-            metric=self.hparams.compute_cost, batch_eval=True,
-        )
+        self.apply_curriculum()
 
-        # TOOO: Reestablish evaluation
         self.is_evaluating = False
         if stage == sb.Stage.VALID:
             if self.is_eval_epoch(epoch):
@@ -208,6 +252,22 @@ class VALLEBrain(sb.Brain):
         elif stage == sb.Stage.TEST:
             self.evaluation_metric.on_evaluation_start()
             self.is_evaluating = True
+
+    def apply_curriculum(self):
+        """Applies curriculum settings, if specified, training only the autoregressive part - or
+        only the non-autoregressive part"""
+        epoch = self.hparams.epoch_counter.current
+        self.train_ar, self.train_nar = True, True
+        if self.hparams.audio_tokens_per_step == 1:
+            # NOTE: If there is only one track it's autoregressive
+            self.train_nar = False
+        elif self.hparams.number_of_epochs_ar is not None and epoch <= self.hparams.number_of_epochs_ar:
+            self.train_nar = False
+        elif (
+            self.hparams.number_of_epochs_nar is not None
+            and epoch <= (self.hparams.number_of_epochs_ar + self.hparams.number_of_epochs_nar)
+        ):
+            self.train_ar = False
 
     def is_eval_epoch(self, epoch):
         """Determines whether or not evaluation should be performed
@@ -226,7 +286,12 @@ class VALLEBrain(sb.Brain):
             otherwise"""
         if epoch is None:
             epoch = self.hparams.epoch_counter.current
-        return epoch % self.hparams.eval_interval == 0
+        # NOTE: Need to get past AR-only training to be able to evaluate
+        can_evaluate = not (
+            self.hparams.number_of_epochs_ar is not None
+            and epoch <= self.hparams.number_of_epochs_ar
+        )
+        return can_evaluate and (epoch % self.hparams.eval_interval == 0)
 
     def on_fit_start(self):
         """Gets called at the beginning of ``fit()``, on multiple processes

@@ -74,12 +74,14 @@ ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters
 input: text
-number_of_epochs: 1200
-epoch_size: 10000
+number_of_epochs: 100
+number_of_epochs_ar: null
+number_of_epochs_nar: null
+epoch_size: 50000
 batch_size: 16
 valid_batch_size: !ref <batch_size>
 grad_accumulation_factor: 1
-max_grad_norm: 0.01
+max_grad_norm: 1.0
 sorting: random
 num_workers: 4
 skip_prep: False

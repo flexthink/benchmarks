@@ -125,6 +125,8 @@ class ValleLM(nn.Module):
         prefix_len=None,
         conti_feats=None,
         nar_level_idx=1,
+        predict_ar=True,
+        predict_nar=True,
     ):
         """Vall-E forward for training
 
@@ -144,6 +146,10 @@ class ValleLM(nn.Module):
             Lengths of condition part in dec_seq (B,).
         nar_level_idx : int
             the index of the non-autoregressive level to train
+        predict_ar : bool
+            Whether to make an autoregressive prediction
+        predict_nar : bool
+            Whether to make a non-autoregressive prediction
 
         Returns
         -------
@@ -161,24 +167,30 @@ class ValleLM(nn.Module):
         )
 
         # Auto-Regressive part
-        input_ar_emb = self.prepare_input(dec_seq_emb, prefix_len, 1)[
-            :, :-1
-        ]  # [B, T, D]
-        h_ar = self.ar_decoder(input_ar_emb)
+        if predict_ar:
+            input_ar_emb = self.prepare_input(dec_seq_emb, prefix_len, 1)[
+                :, :-1
+            ]  # [B, T, D]
+            h_ar = self.ar_decoder(input_ar_emb)
 
         # Non-Auto-Regressive part
-        input_nar_emb = self.prepare_input(
-            dec_seq_emb, prefix_len, nar_level_idx
-        )[
-            :, 1:
-        ]  # [B, T, V]
-        max_len = dec_seq.size(1)
-        mask = length_to_mask(dec_seq_lengths * max_len - 1, max_len - 1).bool()
-        mask = mask.unsqueeze(1).unsqueeze(1)  # [B, 1, 1, T]
-        h_nar = self.nar_decoder(input_nar_emb, nar_level_idx - 1, mask=mask)
+        if predict_nar:
+            input_nar_emb = self.prepare_input(
+                dec_seq_emb, prefix_len, nar_level_idx
+            )[
+                :, 1:
+            ]  # [B, T, V]
+            max_len = dec_seq.size(1)
+            mask = length_to_mask(dec_seq_lengths * max_len - 1, max_len - 1).bool()
+            mask = mask.unsqueeze(1).unsqueeze(1)  # [B, 1, 1, T]
+            h_nar = self.nar_decoder(input_nar_emb, nar_level_idx - 1, mask=mask)
 
-        logits_ar = self.lm_head(h_ar)
-        logits_nar = self.lm_head(h_nar)
+        # Logits
+        logits_ar, logits_nar = None, None
+        if predict_ar:
+            logits_ar = self.lm_head(h_ar)
+        if predict_nar:
+            logits_nar = self.lm_head(h_nar)
 
         return logits_ar, logits_nar
 
