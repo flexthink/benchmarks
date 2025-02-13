@@ -42,6 +42,7 @@ sample_path: null
 progress_folder: !ref <output_folder>/progress
 progress_current: !ref <progress_folder>/current
 progress_meta: !ref <progress_folder>/meta.yaml
+init_from: null
 num_audio_samples: 32
 samples_interval: 5
 
