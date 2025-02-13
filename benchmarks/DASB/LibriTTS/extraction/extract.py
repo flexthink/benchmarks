@@ -17,8 +17,6 @@ from hyperpyyaml import load_hyperpyyaml
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(base_dir)
 
-print(base_dir)
-
 logger = logging.getLogger(__name__)
 
 
