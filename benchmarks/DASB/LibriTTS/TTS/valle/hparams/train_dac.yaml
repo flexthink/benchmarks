@@ -52,6 +52,12 @@ tokens_loader: !new:utils.tokens.TokensLoader
     data_path: !ref <tokens_folder>
 flip_layers: False
 splits: ["train", "valid", "test"]
+
+ckpt_key: dwer
+ckpt_key_kind: min
+ckpt_keep: 2
+test_key: dwer
+test_key_kind: min
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters

@@ -50,7 +50,6 @@ tokens_loader: !new:utils.tokens.TokensLoader
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
 
-
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters

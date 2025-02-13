@@ -391,6 +391,8 @@ class VALLEBrain(sb.Brain):
                 for key, value in self.hparams.eval_summary_log.items()
             }
             stage_stats.update(eval_summary_stats)
+        else:
+            eval_summary_stats = {}
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
@@ -409,8 +411,13 @@ class VALLEBrain(sb.Brain):
             )
 
             # Save the current checkpoint and delete previous checkpoints.
+            ckpt_kwargs = {
+                f"{self.hparams.ckpt_key_kind}_keys": [self.hparams.ckpt_key],
+            }
             self.checkpointer.save_and_keep_only(
-                meta={"loss": stage_stats["loss"]}, min_keys=["loss"],
+                meta={"loss": stage_stats["loss"], **eval_summary_stats},
+                num_to_keep=hparams["ckpt_keep"],
+                **ckpt_kwargs
             )
 
     def inference(self, batch):
@@ -931,7 +938,13 @@ if __name__ == "__main__":
         if test_summary_file.exists():
             logging.info("Test run already completed: %s", test_summary_file)
         else:
+            test_key_kind = hparams["test_key_kind"]
+            test_key = hparams["test_key"]
+            eval_kwargs = {
+                f"{test_key_kind}_key": test_key
+            }
             tts_brain.evaluate(
                 test_set=datasets["test"],
                 test_loader_kwargs=hparams["test_dataloader_opts"],
+                **eval_kwargs
             )

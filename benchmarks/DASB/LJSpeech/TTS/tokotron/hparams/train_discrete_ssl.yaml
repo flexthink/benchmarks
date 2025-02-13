@@ -12,7 +12,7 @@ run_name: !PLACEHOLDER
 # Model Type
 ssl_model_type: wavlm
 representation_mode: discrete
-output_folder: !ref results/tokotron/<experiment_name>/<ssl_model_type>/<seed>
+output_folder: !ref results/<experiment_name>/<ssl_model_type>/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 testing: True # If set to True, the test evlaution is done, otherwise skipped.

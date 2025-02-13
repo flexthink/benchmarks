@@ -11,7 +11,7 @@ run_name: !PLACEHOLDER
 
 # Model Type
 representation_mode: discrete
-output_folder: !ref results/tokotron/<experiment_name>/<ssl_model_type>/<seed>
+output_folder: !ref results/<experiment_name>/<ssl_model_type>/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 testing: True # If set to True, the test evlaution is done, otherwise skipped.
@@ -70,6 +70,12 @@ flip_layers: False
 spk_emb_src: speechbrain/spkrec-ecapa-voxceleb-mel-spec
 use_spk_emb: False
 splits: ["train", "valid", "test"]
+
+ckpt_key: dwer
+ckpt_key_kind: min
+ckpt_keep: 2
+test_key: dwer
+test_key_kind: min
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters

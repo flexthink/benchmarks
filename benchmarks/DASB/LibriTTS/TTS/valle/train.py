@@ -402,14 +402,24 @@ class VALLEBrain(sb.Brain):
 
             # The train_logger writes a summary to stdout and to the logfile.
             self.hparams.train_logger.log_stats(
-                stats_meta={"epoch": epoch, "lr": lr},
+                stats_meta={"epoch": epoch, "lr": lr, **eval_summary_stats},
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,
             )
 
+            ckpt_kwargs = {
+                f"{self.hparams.ckpt_key_kind}_keys": [self.hparams.ckpt_key],
+            }
             # Save the current checkpoint and delete previous checkpoints.
             self.checkpointer.save_and_keep_only(
-                meta={"loss": stage_stats["loss"]}, min_keys=["loss"],
+                meta={"loss": stage_stats["loss"]},
+                **ckpt_kwargs
+            )
+        elif stage == sb.Stage.TEST:
+            self.hparams.train_logger.log_stats(
+                stats_meta={"epoch": epoch, "lr": lr},
+                train_stats=self.train_stats,
+                valid_stats=stage_stats,
             )
 
     def inference(self, batch):
@@ -1047,8 +1057,18 @@ if __name__ == "__main__":
     )
 
     # Load best checkpoint for evaluation
-    if hparams["testing"]:
+
+    test_summary_file = Path(hparams["output_folder"]) / "eval" / "test" / "summary.json"
+    if test_summary_file.exists():
+        logging.info("Test run already completed: %s", test_summary_file)
+    else:
+        test_key_kind = hparams["test_key_kind"]
+        test_key = hparams["test_key"]
+        eval_kwargs = {
+            f"{test_key_kind}_key": test_key
+        }
         tts_brain.evaluate(
             test_set=datasets["test"],
             test_loader_kwargs=hparams["test_dataloader_opts"],
+            **eval_kwargs
         )
