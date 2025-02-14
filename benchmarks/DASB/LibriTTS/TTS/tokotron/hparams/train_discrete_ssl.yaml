@@ -95,6 +95,7 @@ input: text
 number_of_epochs: 1000
 reset_annealing_epoch: null
 batch_size: 16
+valid_batch_size: !ref <batch_size>
 batch_size_guided: 2
 extract_features_batch_size: 32
 grad_accumulation_factor: 1
@@ -202,7 +203,7 @@ train_dataloader_opts:
             value: !ref <pad_index>
 
 valid_dataloader_opts:
-    batch_size: !ref <batch_size>
+    batch_size: !ref <valid_batch_size>
     num_workers: !ref <num_workers>
     collate_fn: !name:speechbrain.dataio.batch.PaddedBatch
         padding_kwargs:
