@@ -7,7 +7,6 @@ Authors:
 """
 
 from speechbrain.inference.interfaces import Pretrained
-from speechbrain.inference.ASR import EncoderDecoderASR
 from speechbrain.lobes.models.huggingface_transformers import Whisper
 from speechbrain.lobes.models.huggingface_transformers.wav2vec2 import Wav2Vec2
 from speechbrain.dataio.dataset import FilteredSortedDynamicItemDataset
@@ -349,105 +348,6 @@ class ASRSpeechEvaluator(SpeechEvaluator):
         ---------
         """
         return [" " if item == "" else item for item in preds]
-
-
-class EncoderDecoderASRSpeechEvaluator(ASRSpeechEvaluator):
-    """A speech evaluator implementation based on ASR.
-    Computes the Word Error Rate (WER), Character Error Rate (CER)
-    and a few other metrics
-
-    Arguments
-    ---------
-    sample_rate : int
-        The audio sample rate this evaluator expects
-    """
-
-    def __init__(self, source, sample_rate=None, *args, **kwargs):
-        super().__init__(sample_rate=sample_rate)
-        self.asr = EncoderDecoderASR.from_hparams(source, *args, **kwargs)
-        self.device = next(self.asr.mods.parameters()).device
-
-    def evaluate_samples(self, wavs, length, text, sample_rate):
-        wavs = self.resample(wavs, sample_rate)
-        if text is None:
-            raise ValueError("This evaluator requires ground-truth text")
-        predicted_words, scores, log_probs = self.transcribe_batch_with_details(
-            wavs, length
-        )
-        ids = range(1, len(wavs) + 1)
-        wer_metric, cer_metric = init_asr_metrics()
-        wer_metric.append(ids, predicted_words, text)
-        cer_metric.append(ids, predicted_words, text)
-        wer = torch.tensor(
-            [score["WER"] for score in wer_metric.scores], device=wavs.device
-        )
-        cer = torch.tensor(
-            [score["WER"] for score in cer_metric.scores], device=wavs.device
-        )
-        prob_mean = log_probs.exp().mean(dim=-1)
-        return {
-            "wer": wer,
-            "cer": cer,
-            "beam_score": scores,
-            "prob_mean": prob_mean,
-            "pred": predicted_words,
-            "target": text,
-        }
-
-    def transcribe_batch_with_details(self, wavs, wav_lens):
-        """Transcribes the input audio into a sequence of words
-
-        The waveforms should already be in the model's desired format.
-        You can call:
-        ``normalized = EncoderDecoderASR.normalizer(signal, sample_rate)``
-        to get a correctly converted signal in most cases.
-
-        Arguments
-        ---------
-        predicted_words : list
-            The raw ASR predictions, fully decoded
-        best_scores : list
-            The best scores (from beam search)
-        best_log_probs : list
-            The best predicted log-probabilities (from beam search)
-
-
-        Returns
-        -------
-        predicted_words : list
-            The predictions
-
-        best_scores : torch.Tensor
-            The best scores (from beam search)
-
-        best_log_probs : torch.Tensor
-            The best log-probabilities
-
-        """
-        with torch.no_grad():
-            wav_lens = wav_lens.to(self.device)
-            encoder_out = self.asr.encode_batch(wavs, wav_lens)
-            (
-                hyps,
-                best_lens,
-                best_scores,
-                best_log_probs,
-            ) = self.asr.mods.decoder(encoder_out, wav_lens)
-            predicted_words = [
-                self.asr.tokenizer.decode_ids(token_seq) for token_seq in hyps
-            ]
-        return predicted_words, best_scores, best_log_probs
-
-    def to(self, device):
-        """Transfers this module to the spcieifed device
-
-        Arguments
-        ---------
-        device : str | torch.Device
-            the target device
-        """
-        self.asr = self.asr.to(device)
-        return self
 
 
 class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
@@ -995,11 +895,12 @@ class SpkSimWavLM(SpeechEvaluator):
             length_cat_abs.int()
         ).long()  # 0 for masked tokens
         # Forward
-        embs = self.model(
-            input_values=audio,
-            attention_mask=attention_mask,
-            output_attentions=False,
-        ).embeddings
+        with torch.inference_mode():
+            embs = self.model(
+                input_values=audio,
+                attention_mask=attention_mask,
+                output_attentions=False,
+            ).embeddings
         hyp_embs, ref_embs = embs.split([len(wavs), len(wavs_ref)])
         scores = torch.nn.functional.cosine_similarity(
             hyp_embs, ref_embs, dim=-1
