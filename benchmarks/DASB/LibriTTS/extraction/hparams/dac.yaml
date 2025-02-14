@@ -48,6 +48,7 @@ sample_rate: 24000
 # Feature parameters
 encoder_dim: 1024
 save_embedding: False
+skip_resample: False
 
 tokenizer: !new:utils.tokenizer_interface.DACTokenizer
   model_type: !ref <model_type>

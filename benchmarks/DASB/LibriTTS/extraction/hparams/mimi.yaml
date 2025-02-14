@@ -42,6 +42,7 @@ sample_rate: 24000
 encoder_dim: 1024
 freeze_embedding: False
 save_embedding: False
+skip_resample: False
 
 tokenizer: !new:utils.tokenizer_interface.MimiTokenizer
   source: !ref <model_hub>

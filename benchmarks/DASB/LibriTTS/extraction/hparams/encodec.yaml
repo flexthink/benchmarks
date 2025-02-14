@@ -44,6 +44,7 @@ num_codebooks: 32
 vocab_size: 1024
 sample_rate: 24000
 save_embedding: False
+skip_resample: False
 
 # EnCodec model (see https://huggingface.co/docs/transformers/v4.31.0/en/model_doc/encodec)
 tokenizer: !new:utils.tokenizer_interface.EncodecTokenizer

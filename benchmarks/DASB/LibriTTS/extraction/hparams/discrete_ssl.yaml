@@ -52,6 +52,8 @@ freeze_ssl: True
 freeze_feature_extractor: True
 vocab_size: 1000
 save_embedding: False
+skip_resample: False
+
 
 ### Config for Tokenizer
 # Layer number should be among the supported layers for discrete SSL models(kmenas  model should be available for that layer)

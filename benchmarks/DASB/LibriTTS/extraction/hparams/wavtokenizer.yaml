@@ -41,6 +41,7 @@ sample_rate: 24000
 save_embedding: False
 num_codebooks: 1
 vocab_size: 4096
+skip_resample: False
 
 # wavtokenizer model
 tokenizer: !new:utils.tokenizer_interface.WavTokenizerWrapper

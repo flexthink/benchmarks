@@ -39,6 +39,7 @@ sample_rate: 16000
 encoder_dim: 1024
 freeze_embedding: False
 save_embedding: False
+skip_resample: False
 
 # EnCodec model (see https://huggingface.co/docs/transformers/v4.31.0/en/model_doc/encodec)
 tokenizer: !new:utils.tokenizer_interface.SpeechTokenizerWrapper

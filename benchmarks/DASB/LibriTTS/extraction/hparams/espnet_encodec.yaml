@@ -48,6 +48,7 @@ num_codebooks: 32
 vocab_size: 1024
 sample_rate: 24000
 save_embedding: False
+skip_resample: False
 
 tokenizer: !new:utils.tokenizer_interface.ESPNetEncodecInterface
   source: !ref <model_hub>

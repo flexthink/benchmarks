@@ -40,6 +40,7 @@ sample_rate: 16000
 save_embedding: False
 num_codebooks: 4
 save_path: /home/ubuntu/sq-codec/SQ-Codec
+skip_resample: False
 
 
 # SQCodec model
