@@ -258,7 +258,6 @@ class VALLEBrain(sb.Brain):
         only the non-autoregressive part"""
         epoch = self.hparams.epoch_counter.current
         self.train_ar, self.train_nar = True, True
-        self.modules.model.lm_head.requires_grad_(True)
         if self.hparams.audio_tokens_per_step == 1:
             # NOTE: If there is only one track it's autoregressive
             self.train_nar = False
@@ -269,7 +268,6 @@ class VALLEBrain(sb.Brain):
             and epoch <= (self.hparams.number_of_epochs_ar + self.hparams.number_of_epochs_nar)
         ):
             self.train_ar = False
-            self.modules.model.lm_head.requires_grad_(False)
 
     def is_eval_epoch(self, epoch):
         """Determines whether or not evaluation should be performed
