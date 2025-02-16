@@ -52,7 +52,7 @@ token_model_src: !apply:speechbrain.utils.hparams.choice
     choices:
         wavlm: microsoft/wavlm-large
         hubert: facebook/hubert-large-ll60k
-        wav2vec2: facebook/wav2vec2-large-960h-lv60-self
+        wav2vec2: facebook/wav2vec2-large
 g2p_src: speechbrain/soundchoice-g2p
 token_model_kmeans_src: poonehmousavi/SSL_Quantization
 kmeans_cache_dir: !ref <save_folder>/kmeans_checkpoint
