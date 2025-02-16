@@ -383,6 +383,7 @@ class VALLEBrain(sb.Brain):
         if stage == sb.Stage.TRAIN:
             self.train_stats = stage_stats
 
+        eval_summary_stats = {}
         # End evaluation and report stats
         if stage != sb.Stage.TRAIN and self.is_evaluating:
             self.evaluation_metric.on_evaluation_end()
