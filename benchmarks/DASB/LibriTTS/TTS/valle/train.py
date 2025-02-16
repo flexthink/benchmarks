@@ -26,6 +26,7 @@ from speechbrain.dataio.dataio import (
 from speechbrain.utils.data_utils import pad_right_to
 from speechbrain.utils.distributed import run_on_main
 from speechbrain.utils.data_utils import batch_pad_right
+from speechbrain.dataio.dataset import FilteredSortedDynamicItemDataset
 from functools import partial
 import re
 import string
@@ -522,6 +523,104 @@ class VALLEBrain(sb.Brain):
         if self.hparams.lr_annealing_mode == "step":
             self.hparams.lr_annealing(self.optimizer)
         return loss
+    
+    def fit(
+        self,
+        epoch_counter,
+        train_set,
+        valid_set=None,
+        progressbar=None,
+        train_loader_kwargs={},
+        valid_loader_kwargs={},
+    ):
+        """Iterate epochs and datasets to improve objective.
+
+        Relies on the existence of multiple functions that can (or should) be
+        overridden. The following methods are used and expected to have a
+        certain behavior:
+
+        * ``fit_batch()``
+        * ``evaluate_batch()``
+        * ``update_average()``
+
+        If the initialization was done with distributed_count > 0 and the
+        distributed_backend is ddp, this will generally handle multiprocess
+        logic, like splitting the training data into subsets for each device and
+        only saving a checkpoint on the main process.
+
+        Arguments
+        ---------
+        epoch_counter : iterable
+            Each call should return an integer indicating the epoch count.
+        train_set : Dataset, DataLoader
+            A set of data to use for training. If a Dataset is given, a
+            DataLoader is automatically created. If a DataLoader is given, it is
+            used directly.
+        valid_set : Dataset, DataLoader
+            A set of data to use for validation. If a Dataset is given, a
+            DataLoader is automatically created. If a DataLoader is given, it is
+            used directly.
+        progressbar : bool
+            Whether to display the progress of each epoch in a progressbar.
+        train_loader_kwargs : dict
+            Kwargs passed to `make_dataloader()` for making the train_loader
+            (if train_set is a Dataset, not DataLoader).
+            E.G. batch_size, num_workers.
+            DataLoader kwargs are all valid.
+        valid_loader_kwargs : dict
+            Kwargs passed to `make_dataloader()` for making the valid_loader
+            (if valid_set is a Dataset, not DataLoader).
+            E.g., batch_size, num_workers.
+            DataLoader kwargs are all valid.
+
+        Returns
+        -------
+        None
+        """
+        if self.test_only:
+            logger.info(
+                "Test only mode, skipping training and validation stages."
+            )
+            return
+
+        self.on_fit_start()
+        train_set = self.make_dataloader(
+            train_set, stage=sb.Stage.TRAIN, **train_loader_kwargs
+        )
+        epoch = self.hparams.epoch_counter.current
+        if epoch < self.hparams.number_of_epochs:
+            valid_set = sample_dataset(
+                dataset=valid_set,
+                count=self.hparams.valid_inter_data_count,
+                seed=self.hparams.seed
+            )
+
+        valid_set = self.make_dataloader(
+            valid_set,
+            stage=sb.Stage.VALID,
+            ckpt_prefix=None,
+            **valid_loader_kwargs,
+        )
+
+        if progressbar is None:
+            progressbar = not self.noprogressbar
+
+        # Only show progressbar if requested and main_process
+        enable = progressbar and sb.utils.distributed.if_main_process()
+
+        # Iterate epochs
+        for epoch in epoch_counter:
+            self._fit_train(train_set=train_set, epoch=epoch, enable=enable)
+            self._fit_valid(valid_set=valid_set, epoch=epoch, enable=enable)
+
+            # Debug mode only runs a few epochs
+            if (
+                self.debug
+                and epoch == self.debug_epochs
+                or self._optimizer_step_limit_exceeded
+            ):
+                break
+
 
 
 INPUT_FEATURE_MAP = {"text": "label_norm", "phonemes": "phn"}
@@ -710,6 +809,34 @@ def dataio_prepare(hparams):
         )
 
     return datasets
+
+
+def sample_dataset(dataset, count, seed):
+    """Selects a sample of the specified dataset in a
+    stable manner, returning the same sample on each call
+
+    Arguments
+    ---------
+    dataset : speechbrain.dataio.dataset.DynamicItemDataset
+        A dataset
+    count : int
+        The number of items to select
+    seed : int
+        The seed to be used
+    """
+    if len(dataset) < count:
+        return dataset
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    indexes = torch.randperm(len(dataset)).tolist()[:count]
+    data_ids = [
+        dataset.data_ids[idx]
+        for idx in indexes
+    ]
+    return FilteredSortedDynamicItemDataset(
+        dataset,
+        data_ids,
+    )
 
 
 def get_offsets(vocab_size, tracks):

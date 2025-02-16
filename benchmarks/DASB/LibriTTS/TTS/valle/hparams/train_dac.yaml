@@ -66,7 +66,9 @@ number_of_epochs: 100
 number_of_epochs_ar: null
 number_of_epochs_nar: null
 epoch_size: 50000
+epoch_fixed: False
 batch_size: 16
+valid_inter_data_count: 50
 valid_batch_size: !ref <batch_size>
 grad_accumulation_factor: 1
 max_grad_norm: 1.0
@@ -118,7 +120,11 @@ train_dataloader_opts:
     batch_size: !ref <batch_size>
     shuffle: True
     num_workers: !ref <num_workers>
-    looped_nominal_epoch: !ref <epoch_size> // <batch_size>        
+    looped_nominal_epoch: !apply:speechbrain.utils.hparams.choice
+        value: !ref <epoch_fixed>
+        choices:
+            True: !ref <epoch_size> // <batch_size>
+            False: null
     collate_fn: !name:speechbrain.dataio.batch.PaddedBatch
         padding_kwargs:
             value: !ref <pad_index>
