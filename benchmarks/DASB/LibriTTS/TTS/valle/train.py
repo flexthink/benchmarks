@@ -815,6 +815,10 @@ def dataio_prepare(hparams):
             spk_samplers=spk_samplers,
         )
         resample_fn[dataset](epoch=0)
+        if hparams["input"] == "phonemes":
+            dynamic_dataset = dynamic_dataset.filtered_sorted(
+                key_test={"has_alignments": lambda value: value}
+            )
 
         datasets[dataset] = dynamic_dataset
         hparams[f"{dataset}_dataloader_opts"]["shuffle"] = False
