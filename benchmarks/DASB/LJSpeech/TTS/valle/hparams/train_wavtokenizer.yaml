@@ -142,6 +142,8 @@ sample_dataloader_opts:
 token_model_kwargs:
     SSL_layers: !ref <speech_model_layers>
 
+freeze_lm_head: False
+
 ####################### Model parameters ###########################
 # Transformer
 d_model: 1024

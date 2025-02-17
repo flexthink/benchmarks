@@ -177,6 +177,8 @@ model_hub: espnet/libritts_encodec_24k
 model_ckpt: exp/codec_encodec_ss4_24k/120epoch.pth
 model_config: exp/codec_encodec_ss4_24k/config.yaml
 
+freeze_lm_head: True
+
 ############################## models ################################
 
 model: !new:model.valle.ValleLM # yamllint disable-line rule:line-length
