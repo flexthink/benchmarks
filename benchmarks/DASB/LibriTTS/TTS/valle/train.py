@@ -258,18 +258,19 @@ class VALLEBrain(sb.Brain):
         only the non-autoregressive part"""
         epoch = self.hparams.epoch_counter.current
         self.train_ar, self.train_nar = True, True
+        self.modules.model.lm_head.requires_grad_(True)
         if self.hparams.audio_tokens_per_step == 1:
             # NOTE: If there is only one track it's autoregressive
             self.train_nar = False
         elif self.hparams.number_of_epochs_ar is not None and epoch <= self.hparams.number_of_epochs_ar:
-            self.train_nar = False
+            self.train_nar = False                
         elif (
             self.hparams.number_of_epochs_nar is not None
             and epoch <= (self.hparams.number_of_epochs_ar + self.hparams.number_of_epochs_nar)
         ):
-            # NOTE: Avoid the AR head being "taken by surprise"
             self.train_ar = False
-        
+            if self.hparams.freeze_lm_head:
+                self.modules.model.lm_head.requires_grad_(False)
 
     def is_eval_epoch(self, epoch):
         """Determines whether or not evaluation should be performed
@@ -455,17 +456,42 @@ class VALLEBrain(sb.Brain):
             )
             for prefix_item in prefix_items
         ]
-        inferred_tokens = [            result[0][0]
-            if result[0]
-            else torch.zeros(
-                1000, self.hparams.audio_tokens_per_step, device=self.device
-            )
+        inferred_tokens = [
+            self._pad_inferred_sample(result)
             for result in inference_results
         ]
         audio, audio_length = batch_pad_right(inferred_tokens)
         audio_length = audio_length.to(self.device)
         audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(0)
         return audio, audio_length
+
+    def _pad_inferred_sample(self, result):
+        """Applies length padding to an inference result
+
+        Arguments
+        ---------
+        result : list
+            The VALL-E Inference output
+
+        Returns
+        -------
+        sample : torch.Tensor
+            A sample, padded if needed
+        """
+        if result[0]:
+            sample = result[0][0]
+        else:
+            sample = torch.zeros(
+                1000, self.hparams.audio_tokens_per_step, device=self.device
+            )
+        min_length = getattr(self.hparams, "infer_min_length", 10)
+        sample_length, tracks = sample.shape
+        if sample_length < min_length:
+            sample = pad_right_to(
+                (min_length, tracks),
+                sample
+            )
+        return sample
 
     def _get_inference_opts(self):
         idx = torch.arange(self.hparams.model_vocab_size, device=self.device)[

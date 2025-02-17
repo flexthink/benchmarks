@@ -185,12 +185,13 @@ audio_token_shift: !apply:speechbrain.utils.hparams.choice
 audio_tokens_per_step: 8
 
 # Model Settings
-model_hub: facebook/encodec_24khz
 espnet_repo: https://github.com/espnet/espnet
 espnet_commit: 1974048563d7c57e11f670d24bac8fb4b5aba4ef
 model_hub: espnet/libritts_encodec_24k
 model_ckpt: exp/codec_encodec_ss4_24k/120epoch.pth
 model_config: exp/codec_encodec_ss4_24k/config.yaml
+
+freeze_lm_head: True
 
 ############################## models ################################
 

@@ -227,6 +227,8 @@ audio_token_shift: !apply:speechbrain.utils.hparams.choice
 
 audio_tokens_per_step: 6
 
+freeze_lm_head: False
+
 ############################## models ################################
 
 model: !new:model.valle.ValleLM # yamllint disable-line rule:line-length

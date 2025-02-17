@@ -188,6 +188,8 @@ audio_tokens_per_step: 8
 # Model Settings
 model_hub: kyutai/mimi
 
+freeze_lm_head: False
+
 ############################## models ################################
 
 model: !new:model.valle.ValleLM # yamllint disable-line rule:line-length

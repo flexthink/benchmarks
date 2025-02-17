@@ -149,6 +149,7 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
+freeze_lm_head: False
 
 ####################### Model parameters ###########################
 # Transformer
