@@ -493,9 +493,9 @@ class VALLEBrain(sb.Brain):
         sample_length, tracks = sample.shape
         if sample_length < min_length:
             sample = pad_right_to(
+                sample,
                 (min_length, tracks),
-                sample
-            )
+            )[0]
         return sample
 
     def _get_inference_opts(self):
