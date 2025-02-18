@@ -686,6 +686,12 @@ def dataio_prepare(hparams):
         raise NotImplementedError(
             "sorting must be random, ascending or descending"
         )
+    data_scale = hparams.get("data_scale")
+    if data_scale:
+        scaled_data_count = int(len(datasets["train"]) * data_scale)
+        datasets["train"] = datasets["train"].filtered_sorted(
+            select_n=scaled_data_count
+        )
     return datasets
 
 
