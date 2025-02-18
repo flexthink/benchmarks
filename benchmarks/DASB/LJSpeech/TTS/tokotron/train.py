@@ -306,6 +306,7 @@ class TokotronBrain(sb.Brain):
             self.train_stats = stage_stats
 
         # End evaluation and report stats
+        eval_summary_stats = {}
         if stage != sb.Stage.TRAIN and self.is_eval_epoch(epoch):
             self.evaluator.on_evaluate_end()
             eval_summary_stats = self.get_summary_stats()
@@ -329,9 +330,14 @@ class TokotronBrain(sb.Brain):
                 valid_stats=stage_stats,
             )
 
-            # Save the current checkpoint and delete previous checkpoints.
+            # Save the current checkpoint and delete previous checkpoints.        
+            ckpt_kwargs = {
+                f"{self.hparams.ckpt_key_kind}_keys": [self.hparams.ckpt_key],
+            }
             self.checkpointer.save_and_keep_only(
-                meta={"loss": stage_stats["loss"]}, min_keys=["loss"],
+                meta={"loss": stage_stats["loss"], **eval_summary_stats},
+                num_to_keep=hparams["ckpt_keep"],
+                **ckpt_kwargs
             )
 
     def get_summary_stats(self):
@@ -667,6 +673,12 @@ def dataio_prepare(hparams):
         raise NotImplementedError(
             "sorting must be random, ascending or descending"
         )
+    data_scale = hparams.get("data_scale")
+    if data_scale:
+        scaled_data_count = int(len(datasets["train"]) * data_scale)
+        datasets["train"] = datasets["train"].filtered_sorted(
+            select_n=scaled_data_count
+        )
 
     return datasets, silence_padding
 
@@ -918,10 +930,22 @@ if __name__ == "__main__":
         if test_summary_file.exists():
             logging.info("Test run already completed: %s", test_summary_file)
         else:
-            tts_brain.evaluate(
-                test_set=datasets["test"],
-                test_loader_kwargs=hparams["test_dataloader_opts"],
-            )
+            test_summary_file = Path(hparams["output_folder"]) / "eval" / "test" / "summary.json"
+            if test_summary_file.exists():
+                logging.info("Test run already completed: %s", test_summary_file)
+            else:
+                test_key_kind = hparams["test_key_kind"]
+                test_key = hparams["test_key"]
+                if test_key:
+                    eval_kwargs = {
+                        f"{test_key_kind}_key": test_key
+                    }
+                tts_brain.evaluate(
+                    test_set=datasets["test"],
+                    test_loader_kwargs=hparams["test_dataloader_opts"],
+                    **eval_kwargs
+                )
+
 
     # Save final checkpoint (fixed name)
     tts_brain.checkpointer.save_checkpoint(name="latest")

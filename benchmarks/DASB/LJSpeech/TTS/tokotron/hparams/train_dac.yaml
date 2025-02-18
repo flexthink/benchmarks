@@ -39,6 +39,7 @@ progress_meta: !ref <progress_folder>/meta.yaml
 num_audio_samples: 32
 samples_interval: 5
 
+
 tokens_folder: !PLACEHOLDER  # Path to the folder where extracted tokens are saved.
 
 tokens_loader: !new:utils.tokens.TokensLoader
@@ -49,8 +50,11 @@ token_model_kwargs:
 
 splits: ["train", "valid", "test"]
 split_ratio: [90, 5, 5]
-
-
+ckpt_key: dwer
+ckpt_key_kind: min
+ckpt_keep: 2
+test_key: null
+test_key_kind: min
 ckpt_interval_minutes: 30 # save checkpoint every N min
 
 # Training parameters
