@@ -72,11 +72,16 @@ class VALLEBrain(sb.Brain):
         -------
         wav : torch.Tensor
         """
-        self.modules.tokenizer.device = self.device
-        if hasattr(self.modules.tokenizer, "codec_vocoder"):
-            self.modules.tokenizer.codec_vocoder.to(self.device)
-            self.modules.tokenizer.codec_vocoder.device = self.device
-        wav = self.modules.tokenizer.tokens_to_sig(audio)
+        tokenizer = (
+            self.modules.tokenizer.module
+            if hasattr(self.modules.tokenizer, "module")
+            else self.modules.tokenizer
+        )
+        tokenizer.device = self.device
+        if hasattr(tokenizer, "codec_vocoder"):
+            tokenizer.codec_vocoder.to(self.device)
+            tokenizer.codec_vocoder.device = self.device
+        wav = tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         wav = wav.to(self.device)
         return wav
