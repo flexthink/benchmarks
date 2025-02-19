@@ -1122,6 +1122,10 @@ def select_eval_subset(dataset, hparams, key="eval_subset"):
             raise ValueError(f"eval_subset {eval_subset_path} does not exist")
         with open(eval_subset_path) as eval_subset_file:
             eval_subset_ids = [line.strip() for line in eval_subset_file]
+        existing_ids = dataset.data_ids
+        eval_subset_ids = [uttid for uttid in eval_subset_ids if uttid in existing_ids]
+        if not eval_subset_ids:
+            raise ValueError("{eval_subset_path}: no items found in the dataset")
         subset = FilteredSortedDynamicItemDataset(dataset, eval_subset_ids)
     else:
         subset = dataset
