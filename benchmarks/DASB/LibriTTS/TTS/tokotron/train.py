@@ -1019,7 +1019,13 @@ if __name__ == "__main__":
         if test_summary_file.exists():
             logging.info("Test run already completed: %s", test_summary_file)
         else:
+            test_key_kind = hparams["test_key_kind"]
+            test_key = hparams["test_key"]
+            eval_kwargs = {
+                f"{test_key_kind}_key": test_key
+            }
             tts_brain.evaluate(
                 test_set=datasets["test"],
                 test_loader_kwargs=hparams["test_dataloader_opts"],
+                **eval_kwargs
             )
