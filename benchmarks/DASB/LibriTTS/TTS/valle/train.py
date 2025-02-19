@@ -1097,6 +1097,37 @@ def apply_overfit_test(hparams, dataset):
     return result
 
 
+def select_eval_subset(dataset, hparams, key="eval_subset"):
+    """Selects a subset of the dataset provided, if specified.
+    The selection is controlled by a hyperparameter named
+    eval_subset, which is expected to list the IDs of the
+    data items on which evaluation will take place, one per line
+
+    Arguments
+    ---------
+    dataset : speechbrain.dataio.dataset.DynamicItemDataset
+        A dataset
+    hparams : dict
+        A hyperparameters file
+
+    Returns
+    -------
+    subset : dataset
+        The dataset, filtered down if applicable
+    """
+    eval_subset_path = hparams.get(key)
+    if eval_subset_path is not None:
+        eval_subset_path = Path(eval_subset_path)
+        if not eval_subset_path.exists():
+            raise ValueError(f"eval_subset {eval_subset_path} does not exist")
+        with open(eval_subset_path) as eval_subset_file:
+            eval_subset_ids = [line.strip() for line in eval_subset_file]
+        subset = FilteredSortedDynamicItemDataset(dataset, eval_subset_ids)
+    else:
+        subset = dataset
+    return subset
+
+
 def undo_padding_tensor(batch, lengths):
     """Produces Python lists given a batch of sentences with
     their corresponding relative lengths.
@@ -1238,8 +1269,10 @@ if __name__ == "__main__":
         eval_kwargs = {
             f"{test_key_kind}_key": test_key
         }
+        eval_dataset = datasets["test"]
+        eval_dataset = select_eval_subset(eval_dataset, hparams)
         tts_brain.evaluate(
-            test_set=datasets["test"],
+            test_set=eval_dataset,
             test_loader_kwargs=hparams["test_dataloader_opts"],
             **eval_kwargs
         )
