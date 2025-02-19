@@ -433,7 +433,7 @@ class VALLEBrain(sb.Brain):
             )
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
-                stats_meta={"epoch": epoch, "lr": lr},
+                stats_meta={"epoch": epoch},
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,
             )
