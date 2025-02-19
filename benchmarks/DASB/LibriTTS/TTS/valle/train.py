@@ -81,7 +81,7 @@ class VALLEBrain(sb.Brain):
         if hasattr(tokenizer, "codec_vocoder"):
             tokenizer.codec_vocoder.to(self.device)
             tokenizer.codec_vocoder.device = self.device
-        wav = tokenizer.tokens_to_sig(audio)
+        wav = self.modules.tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         wav = wav.to(self.device)
         return wav
@@ -427,7 +427,8 @@ class VALLEBrain(sb.Brain):
             }
             # Save the current checkpoint and delete previous checkpoints.
             self.checkpointer.save_and_keep_only(
-                meta={"loss": stage_stats["loss"]},
+                meta={"loss": stage_stats["loss"], **eval_summary_stats},
+                num_to_keep=hparams["ckpt_keep"],
                 **ckpt_kwargs
             )
         elif stage == sb.Stage.TEST:
