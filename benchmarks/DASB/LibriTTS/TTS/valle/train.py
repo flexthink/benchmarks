@@ -81,7 +81,7 @@ class VALLEBrain(sb.Brain):
         if hasattr(tokenizer, "codec_vocoder"):
             tokenizer.codec_vocoder.to(self.device)
             tokenizer.codec_vocoder.device = self.device
-        wav = self.modules.tokenizer.tokens_to_sig(audio)
+        wav = tokenizer.tokens_to_sig(audio)
         clean_padding_(wav, length)
         wav = wav.to(self.device)
         return wav
