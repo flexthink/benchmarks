@@ -102,16 +102,17 @@ class ValleLM(nn.Module):
             qk_norm=qk_norm,
             dropout=dropout,
         )
-
-        self.nar_decoder = ValleNARDecoder(
-            n_level=nq - 1,
-            n_ctx=n_ctx,
-            n_state=att_unit,
-            n_head=head,
-            n_layer=nar_layer,
-            qk_norm=qk_norm,
-            dropout=dropout,
-        )
+        if nq > 1:
+            # NOTE: An NAR encoder is not needed if there is only one track
+            self.nar_decoder = ValleNARDecoder(
+                n_level=nq - 1,
+                n_ctx=n_ctx,
+                n_state=att_unit,
+                n_head=head,
+                n_layer=nar_layer,
+                qk_norm=qk_norm,
+                dropout=dropout,
+            )
 
         self.nq = nq
         self.n_ctx = n_ctx
@@ -301,7 +302,7 @@ class ValleLM(nn.Module):
                 nq_level=0,
             )
             # [B, 1, 1] -> [B, 1]
-            gen_tok, gen_score = gen_tok.squeeze(2), gen_tok.squeeze(2)
+            gen_tok, gen_score = gen_tok.squeeze(2), gen_score.squeeze(2)
 
             generated["token"].append(gen_tok)
             generated["score"].append(gen_score)
@@ -397,42 +398,46 @@ class ValleLM(nn.Module):
         vocab_mask = torch.cat(mask_cache, dim=1)
 
         # (4.2) NAR loop
-        for step in range(1, opts.nq):
-            h_nar = self.nar_decoder(
-                prev_emb, ones * step - 1, mask=mask
-            )  # [B, T, D]
-            logits = self.lm_head(h_nar)
-            gen_tok, gen_score = logits_to_tokens(
-                logits.unsqueeze(2),
-                opts,
-                vocab_mask,
-                search_algo="greedy_search",
-                allow_eos=False,
-                nq_level=step,
-            )
-            gen_tok, gen_score = (
-                gen_tok.squeeze(2),
-                gen_score.squeeze(2),
-            )  # [B, T]
+        if self.nq > 1:
+            for step in range(1, opts.nq):
+                h_nar = self.nar_decoder(
+                    prev_emb, ones * step - 1, mask=mask
+                )  # [B, T, D]
+                logits = self.lm_head(h_nar)
+                gen_tok, gen_score = logits_to_tokens(
+                    logits.unsqueeze(2),
+                    opts,
+                    vocab_mask,
+                    search_algo="greedy_search",
+                    allow_eos=False,
+                    nq_level=step,
+                )
+                gen_tok, gen_score = (
+                    gen_tok.squeeze(2),
+                    gen_score.squeeze(2),
+                )  # [B, T]
 
-            generated["token"].append(gen_tok[:, prefix.size(1) :])
-            generated["score"].append(gen_score[:, prefix.size(1) :])
+                generated["token"].append(gen_tok[:, prefix.size(1) :])
+                generated["score"].append(gen_score[:, prefix.size(1) :])
 
-            if opts.search_algo == "teacher_force":
-                prev_tok = suffix[:, :, step]
-            else:
-                prev_tok = generated["token"][-1]
-            prev_emb[:, prefix.size(1) :] += self.emb(prev_tok)  # [B, T, D]
-            prev_emb[:, prefix.size(1) - 1 : prefix.size(1)] += start_emb
+                if opts.search_algo == "teacher_force":
+                    prev_tok = suffix[:, :, step]
+                else:
+                    prev_tok = generated["token"][-1]
+                prev_emb[:, prefix.size(1) :] += self.emb(prev_tok)  # [B, T, D]
+                prev_emb[:, prefix.size(1) - 1 : prefix.size(1)] += start_emb
 
-        # (5) combine AR and NAR results
-        gen_tokens_nar = torch.stack(generated["token"], dim=2)  # [B, T, nq]
-        gen_scores_nar = torch.stack(generated["score"], dim=2)
+            # (5) combine AR and NAR results
+            gen_tokens_nar = torch.stack(generated["token"], dim=2)  # [B, T, nq]
+            gen_scores_nar = torch.stack(generated["score"], dim=2)
 
-        gen_tokens = torch.cat(
-            [gen_tokens_ar, gen_tokens_nar], dim=2
-        )  # [B, T, nq]
-        gen_scores = torch.cat([gen_scores_ar, gen_scores_nar], dim=2)
+            gen_tokens = torch.cat(
+                [gen_tokens_ar, gen_tokens_nar], dim=2
+            )  # [B, T, nq]
+            gen_scores = torch.cat([gen_scores_ar, gen_scores_nar], dim=2)
+        else:
+            gen_tokens = gen_tokens_ar
+            gen_scores = gen_scores_ar
 
         gen_tokens_list, gen_scores_list = [], []
         for b in range(len(valid_idx)):
