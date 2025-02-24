@@ -433,6 +433,11 @@ class VALLEBrain(sb.Brain):
                 num_to_keep=hparams["ckpt_keep"],
                 **ckpt_kwargs
             )
+        elif stage == sb.Stage.TEST:
+            self.hparams.train_logger.log_stats(
+                stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
+                test_stats=stage_stats,
+            )
 
     def inference(self, batch):
         """Runs TTS inference

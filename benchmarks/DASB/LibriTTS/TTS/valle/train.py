@@ -433,9 +433,8 @@ class VALLEBrain(sb.Brain):
             )
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
-                stats_meta={"epoch": epoch},
-                train_stats=self.train_stats,
-                valid_stats=stage_stats,
+                stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
+                test_stats=stage_stats,
             )
 
     def inference(self, batch):
