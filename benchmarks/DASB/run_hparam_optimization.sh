@@ -207,7 +207,17 @@ while [[ $# -gt 0 ]]; do
       ;;
 
     -*|--*)
-      additional_flags+="$1 $2 " # store additional flags
+      name=$1
+      value=$2
+      if [[ "$name" =~ ^--eval_run_ ]]; then
+        name=$(echo $name | sed s/^--eval_run_/--/)
+        eval_run_additional_flags+="$name $value "
+      else
+        if [[ ! "$eval_run_additional_flags" =~ "$name " ]]; then
+          eval_run_additional_flags+="$name $value "
+        fi
+        additional_flags+="$name $value " # store additional flags
+      fi    
       shift # past argument
       ;;
 
@@ -415,6 +425,6 @@ scp $best_yaml_file $final_yaml_file
 ./run_experiments.sh --hparams $final_yaml_file --data_folder $data_folder  --cached_data_folder $cached_data_folder \
   --output_folder $output_folder/best --task $task   --dataset $dataset  --seed $seed\
   --nruns $nruns_eval --eval_metric $eval_metric --eval_set test \
-  --rnd_dir False --testing True $additional_flags
+  --rnd_dir False --testing True $eval_run_additional_flags
 
 echo "The test performance with best hparams is available at  $output_folder/best"
