@@ -703,6 +703,16 @@ def dataio_prepare(hparams):
     tokens_loader = hparams.get("tokens_loader")
     spk_prompt_length = hparams["spk_prompt_length"]
 
+    layer_idx = None
+    if "speech_model_layers" in hparams:
+        layer_idx = get_selected_layer_indexes(hparams)
+
+    if layer_idx is not None:
+        num_codebooks = layer_idx
+    else:
+        num_codebooks = hparams["audio_tokens_per_step"]
+
+
     @sb.utils.data_pipeline.takes("label")
     @sb.utils.data_pipeline.provides("label_norm", "label_norm_eval")
     def text_pipeline(label):
@@ -722,7 +732,7 @@ def dataio_prepare(hparams):
         # Sample a speaker-matched embedding
         selected_uttid = spk_sample[uttid]
         audio = tokens_loader.tokens_by_uttid(
-            selected_uttid, num_codebooks=hparams["audio_tokens_per_step"]
+            selected_uttid, num_codebooks=num_codebooks
         )
         if audio.size(0) > spk_prompt_length:
             offset = torch.randint(0, audio.size(0), (1,)).item()
@@ -1001,6 +1011,22 @@ def init_sequence_encoder(hparams):
     encoder.update_from_iterable(tokens, sequence_input=False)
     encoder.expect_len(len(tokens) + hparams["special_num_tokens"])
     return encoder
+
+
+def get_selected_layer_indexes(hparams):
+    """Finds the layers of selected layers
+
+    Arguments
+    ---------
+    hparams : dict
+        Hyperparameters
+    """
+    selected_layers = hparams.get("speech_model_layers")
+    available_layers = hparams.get("available_speech_model_layers")
+    if not (selected_layers and available_layers):
+        return None
+    layer_idx = [available_layers.index(layer) for layer in selected_layers]
+    return layer_idx
 
 
 def read_token_list(file_name):
