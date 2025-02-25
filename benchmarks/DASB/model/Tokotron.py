@@ -25,7 +25,7 @@ from speechbrain.utils.data_utils import batch_pad_right
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.embedding import Embedding
 from speechbrain.nnet.linear import Linear
-from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss, bce_loss
+from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss, nll_loss
 from speechbrain.dataio.dataio import length_to_mask
 from speechbrain.utils.data_utils import concat_padded_features
 from speechbrain.nnet.schedulers import NoamScheduler
@@ -418,16 +418,21 @@ class TernaryPredictionHead(nn.Module):
     num_positions : int
         the number of positions
     """
-    def __init__(self, d_model, num_positions):
+    def __init__(self, d_model, num_positions, d_hidden=512):
         super().__init__()
         self.num_positions = num_positions
         self.d_model = d_model
         self.num_positions = num_positions
-        self.lin_p = Linear(
+        self.lin_hidden = Linear(
             input_size=d_model,
-            n_neurons=num_positions * 2
+            n_neurons=d_hidden,
         )
-        self.sigmoid = nn.Sigmoid()
+        self.act = nn.LeakyReLU()
+        self.lin_p = Linear(
+            input_size=d_hidden,
+            n_neurons=num_positions * 3,
+            bias=False
+        )
 
     def forward(self, x):
         """Computes the forward pass
@@ -440,13 +445,18 @@ class TernaryPredictionHead(nn.Module):
         Returns
         -------
         p : torch.Tensor
-            A tensor of shape (Batch x Length x num_positions x 2) where
-            p[:, :, :, 0] -> the probability of the ternary digit being at least 0
-            p[:, :, :, 0] -> the probability of the ternary digit being at least 1
+            A tensor of shape (Batch x Length x num_positions x ternary digit)
+            The values are logits (unnormalized probabilities)
+
+            p[:, :, :, 0] corresponds to -1
+            p[:, :, :, 1] corresponds to 0
+            p[:, :, :, 2] corresponds to 1
         """
         batch_size, max_len, _ = x.shape
-        p = self.sigmoid(self.lin_p(x))
-        p = p.reshape(batch_size, max_len, self.num_positions, 2)
+        x = self.lin_hidden(x)
+        x = self.act(x)
+        x = self.lin_p(x)
+        p = x.reshape(batch_size, max_len, self.num_positions, 3)
         return p
 
 
@@ -1960,183 +1970,6 @@ class MultiEmbedding(nn.Module):
         return torch.stack([emb.weight for emb in self.emb])
 
 
-class DACFeatureExtractor(nn.Module):
-    """An adapter for feature extraction
-
-    Arguments
-    ---------
-    dac : DAC
-        a DAC model
-    """
-
-    def __init__(self, dac, n_quantizers):
-        super().__init__()
-        self.dac = dac
-        self.dac.eval()
-        self.n_quantizers = n_quantizers
-
-    def encode(self, inputs, length):
-        """Encodes a raw audio sample using DAC
-
-        Arguments
-        ---------
-        inputs : torch.Tensor
-            A (Batch x Samples) or (Batch x Channel x Samples)
-            tensor of audio
-        length : torch.Tensor
-            A tensor of relative lengths
-
-        Returns
-        -------
-        tokens : torch.Tensor
-            A (Batch x Tokens x Heads) tensor of audio tokens
-        emb : torch.Tensor
-            Raw vector embeddings from the model's
-            quantizers
-
-        """
-        if inputs.dim() < 3:
-            inputs = inputs.unsqueeze(1)
-        emb, codes, _, _, _ = self.dac.encode(
-            inputs, n_quantizers=self.n_quantizers
-        )
-        emb.transpose_(1, 2)
-        codes.transpose_(1, 2)
-        max_len = emb.size(1)
-        mask = length_to_mask(
-            length * max_len, max_len, device=inputs.device
-        ).unsqueeze(-1)
-        return codes * mask, emb * mask
-
-    def forward(self, inputs, length):
-        """Encodes a raw audio sample using DAC
-
-        Arguments
-        ---------
-        inputs : torch.Tensor
-            A (Batch x Samples) or (Batch x Channel x Samples)
-            tensor of audio
-        length : torch.Tensor
-            A tensor of relative lengths
-
-        Returns
-        -------
-        tokens : torch.Tensor
-            A (Batch x Tokens x Heads) tensor of audio tokens
-        emb : torch.Tensor
-            Raw vector embeddings from the model's
-            quantizers
-
-        """
-        return self.encode(inputs, length)
-
-    def embeddings(self, tokens):
-        """Converts token indexes to vector embeddings
-
-        Arguments
-        ---------
-        tokens : torch.Tensor
-            a (Batch x Length x Heads) tensor of token indexes
-
-        Returns
-        -------
-        emb : torch.Tensor
-            a (Batch x Length x Heads x Embedding) tensor
-            of raw vector embeddings from the model's
-            quantizer codebooks
-        """
-        emb, _, _ = self.dac.quantizer.from_codes(tokens.transpose(1, 2).int())
-        return emb.transpose(1, 2)
-
-
-class SpeechTokenizerFeatureExtractor(nn.Module):
-    """This lobe enables the integration of HuggingFace and SpeechBrain
-    pretrained SpeechTokenizer.
-
-    Please, install speechtokenizer:
-    pip install speechtokenizer
-
-    Source paper: https://arxiv.org/abs/2308.16692
-
-
-    The model can be used as a fixed Discrete feature extractor or can be finetuned. It
-    will download automatically the model from HuggingFace or use a local path.
-
-    Arguments
-    ---------
-    speech_tokenizer : speechbrain.lobes.models.discrete.speechtokenizer_interface.SpeechTokenizer_interface
-        The speech tokenizer interface
-    codebooks : int, optional
-        The number of codebooks to use - if omitted,
-    """
-
-    def __init__(self, speech_tokenizer, codebooks=None):
-        super().__init__()
-        self.speech_tokenizer = speech_tokenizer
-        self.codebooks = codebooks
-
-    def forward(self, wav, wav_lens=None):
-        """Takes an input waveform and return its corresponding wav2vec encoding.
-
-        Arguments
-        ---------
-        wav : torch.Tensor (signal)
-            A batch of audio signals to transform to features.
-        wav_lens : torch.Tensor
-            The relative length of the wav given in SpeechBrain format.
-
-        Returns
-        -------
-        tokens : torch.Tensor
-            A tensor of audio tokens
-            Shape: (N_q x Batch x Time) by default
-            (Batch x Time x N_q) if shape == compat
-
-        """
-        return self.encode(wav, wav_lens)
-
-    def encode(self, wav, wav_lens=None):
-        """Takes an input waveform and return its corresponding wav2vec encoding.
-
-        Arguments
-        ---------
-        wav : torch.Tensor (signal)
-            A batch of audio signals to transform to features.
-        wav_lens : torch.Tensor
-            The relative length of the wav given in SpeechBrain format.
-
-        Returns
-        -------
-        tokens : torch.Tensor
-            A (Batch x Seq, N_q) tensor of audio tokens
-
-        """
-        # Extract discrete codes from SpeechTokenizer
-        codes = self.speech_tokenizer.encode(
-            wav.unsqueeze(1), wav_lens
-        )  # codes: (n_q, B, T)
-        if self.codebooks is not None:
-            codes = codes[: self.codebooks]
-        codes = codes.permute(1, 2, 0)
-        return codes
-
-    def decode(self, codes):
-        """Takes an input waveform and return its corresponding wav2vec encoding.
-
-        Arguments
-        ---------
-        tokens : torch.Tensor
-            A (N_q, Batch x Seq) tensor of audio tokens
-
-        Returns
-        -------
-        wav : torch.Tensor (signal)
-            A batch of reconstructed audio signals.
-        """
-        codes = codes.permute(2, 0, 1)
-        return self.speech_tokenizer.decode(codes)
-
-
 def get_silence_token(
     model,
     sample_length=100000,
@@ -2335,67 +2168,22 @@ def use_silence_padding(dataloader_opts, silence_token, token_keys):
     }
 
 
-def ternary_matrix_to_decimal(matrix):
-    """
-    Convert a B*D*N ternary matrix to a 2D array of decimal numbers for each batch.
-
-    Arguments
-    ---------
-    matrix : numpy.ndarray
-        A 3D numpy array of shape (B, D, N), where B is the batch size, D is the number
-        of ternary digits, and N is the number of ternary numbers in each batch.
-
-    Returns
-    -------
-    numpy.ndarray
-        A 2D numpy array of shape (B, N), where each value represents the decimal
-        equivalent of the corresponding ternary number in the input matrix.
-    """
-    (
-        B,
-        D,
-        N,
-    ) = (
-        matrix.shape
-    )  # B is the batch size, D is the number of digits, N is the number of ternary numbers
-    powers_of_three = 3 **torch.arange(D)  # [3^0, 3^1, ..., 3^(D-1)]
-
-    # Reshape powers_of_three for broadcasting: [D] -> [1, D, 1]
-    powers_of_three = powers_of_three[:, None]  # Shape [D, 1]
-
-    # Compute dot product using broadcasting: matrix * powers_of_three along D axis
-    decimals = torch.sum(matrix * powers_of_three, axis=1)  # Sum along the D axis
-
-    return decimals
-
-
 def logits_to_ternary(logits):
     """Converts a tensor with two logits to a ternary matrix
 
     Arguments
     ---------
     logits : torch.Tensor
-        The logits (Batch x Length x num_positions x 2)
+        The logits (Batch x Length x num_positions x 3)
 
     Returns
     -------
     result : torch.Tensor
         The corresponding ternary matrix
     """
-    gte0 = logits[..., 0] >= 0.5
-    gte1 = logits[..., 1] >= 0.5
-    val_minus_1 = torch.tensor(-1, device=logits.device)
-    val_zero = torch.tensor(0, device=logits.device)
-    val_plus_1 = torch.tensor(1, device=logits.device)
-    return torch.where(
-        gte0,
-        torch.where(
-            gte1,
-            val_plus_1,
-            val_zero
-        ),
-        val_minus_1
-    )
+    ternary = logits.argmax(-1) - 1
+    return ternary
+
 
 def ternary_matrix_to_decimal(matrix):
     """
@@ -2433,7 +2221,7 @@ def ternary_matrix_to_decimal(matrix):
 
 def ternary_to_decimal(ternary, n_codebook=4):
     """Converts ternary digits to their decimal equivalent
-    
+
     Arguments
     ---------
     ternary : torch.Tensor
@@ -2479,7 +2267,9 @@ def tokens_to_ternary(tokens):
     
     Returns
     -------
-    result : t""" 
+    result : torch.Tensor
+        A (Batch x Length x Ternary Positions) tensor
+        with values of (-1, 0, 1)"""
     batch_size = tokens.size(0)
     n_codebook = tokens.size(2)
     tokens = tokens.view(batch_size, -1, n_codebook).permute(2, 0, 1).clone()
@@ -2491,19 +2281,36 @@ def tokens_to_ternary(tokens):
 
 
 def ternary_loss(predictions, targets, length=None, reduction="mean"):
-    tgt_gte0 = targets >= 0.
-    tgt_gte1 = targets >= 1.
-    loss_gte0 = bce_loss(
-        predictions[:, :, :, 0],
-        tgt_gte0,
-        length=length,
-        reduction=reduction,
+    batch_size, max_len, positions = targets.shape
+    predictions_reshaped = (
+        predictions
+        .permute(2, 0, 1, 3)
+        .reshape(batch_size * positions, max_len, 3)
     )
-    loss_gte1 = bce_loss(
-        predictions[:, :, :, 0],
-        tgt_gte1,
-        length=length,
-        reduction=reduction,
+    targets_cat = targets + 1
+    targets_cat_reshaped = (
+        targets_cat
+        .permute(2, 0, 1)
+        .reshape(batch_size * positions, max_len)
     )
-    loss = loss_gte0 + loss_gte1
+    length_reshaped = (
+        length.unsqueeze(-1)
+        .expand(batch_size, positions)
+        .permute(1, 0)
+        .reshape(batch_size * positions)
+    )
+    loss = nll_loss(
+        log_probabilities=predictions_reshaped,
+        targets=targets_cat_reshaped,
+        length=length_reshaped,
+        reduction=reduction
+    )
+    if reduction == "batch":
+        loss = (
+            loss
+            .reshape(positions, batch_size)
+            .permute(1, 0)
+            .mean(1)
+        )
+
     return loss
