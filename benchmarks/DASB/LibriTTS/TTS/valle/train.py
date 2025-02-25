@@ -81,7 +81,9 @@ class VALLEBrain(sb.Brain):
         if hasattr(tokenizer, "codec_vocoder"):
             tokenizer.codec_vocoder.to(self.device)
             tokenizer.codec_vocoder.device = self.device
-        wav = tokenizer.tokens_to_sig(audio)
+        wav = tokenizer.tokens_to_sig(
+            audio, **self.token_model_kwargs
+        )
         clean_padding_(wav, length)
         wav = wav.to(self.device)
         return wav
@@ -265,6 +267,9 @@ class VALLEBrain(sb.Brain):
         elif stage == sb.Stage.TEST:
             self.evaluation_metric.on_evaluation_start()
             self.is_evaluating = True
+        self.token_model_kwargs = getattr(
+            self.hparams, "token_model_kwargs", {}
+        )
 
     def apply_curriculum(self):
         """Applies curriculum settings, if specified, training only the autoregressive part - or
