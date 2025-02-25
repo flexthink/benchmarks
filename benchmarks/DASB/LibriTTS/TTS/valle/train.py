@@ -242,6 +242,14 @@ class VALLEBrain(sb.Brain):
             self.hparams.vocab_size, self.hparams.audio_tokens_per_step,
         )[None, None, :].to(self.device)
 
+        if hasattr(hparams, "speech_model_layers"):
+            self.layer_idx = get_selected_layer_indexes(
+                hparams.available_speech_model_layers,
+                hparams.speech_model_layers
+            )
+        else:
+            self.layer_idx = None
+
         self.loss_metric = sb.utils.metric_stats.MultiMetricStats(
             metric=self.compute_loss_stats, batch_eval=True,
         )
@@ -705,7 +713,10 @@ def dataio_prepare(hparams):
 
     layer_idx = None
     if "speech_model_layers" in hparams:
-        layer_idx = get_selected_layer_indexes(hparams)
+        layer_idx = get_selected_layer_indexes(
+            hparams["available_speech_model_layers"],
+            hparams["speech_model_layers"],
+        )
 
     if layer_idx is not None:
         num_codebooks = layer_idx
@@ -751,7 +762,7 @@ def dataio_prepare(hparams):
     )
     def prompt_pipeline(id, tokens, spk_prompt):
         audio = tokens_loader.tokens_by_uttid(
-            id, num_codebooks=hparams["audio_tokens_per_step"]
+            id, num_codebooks=num_codebooks
         )
         if hparams["flip_layers"]:
             audio = audio.flip(-1)
@@ -1013,16 +1024,21 @@ def init_sequence_encoder(hparams):
     return encoder
 
 
-def get_selected_layer_indexes(hparams):
+def get_selected_layer_indexes(available_layers, selected_layers):
     """Finds the layers of selected layers
 
     Arguments
     ---------
-    hparams : dict
-        Hyperparameters
+    available_layers : list
+        The available layers
+    selected_layers : list
+        The selected layers
+
+    Returns
+    -------
+    layer_idx : list    
+        The layer indexes
     """
-    selected_layers = hparams.get("speech_model_layers")
-    available_layers = hparams.get("available_speech_model_layers")
     if not (selected_layers and available_layers):
         return None
     layer_idx = [available_layers.index(layer) for layer in selected_layers]
