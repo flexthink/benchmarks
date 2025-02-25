@@ -272,6 +272,8 @@ class VALLEBrain(sb.Brain):
         self.token_model_kwargs = getattr(
             self.hparams, "token_model_kwargs", {}
         )
+        dataset = stage.name.lower()
+        self.resample_fn[dataset](epoch=epoch or 0)
 
     def apply_curriculum(self):
         """Applies curriculum settings, if specified, training only the autoregressive part - or
@@ -877,7 +879,7 @@ def dataio_prepare(hparams):
             "sorting must be random, ascending or descending"
         )
 
-    return datasets
+    return datasets, resample_fn
 
 
 def sample_dataset(dataset, count, seed):
@@ -1283,7 +1285,7 @@ if __name__ == "__main__":
         )
 
     # We can now directly create the datasets for training, valid, and test
-    datasets = dataio_prepare(hparams)
+    datasets, resample_fn = dataio_prepare(hparams)
 
     # Apply overfit test settings
     datasets = apply_overfit_test(hparams, datasets)
@@ -1297,6 +1299,8 @@ if __name__ == "__main__":
         run_opts=run_opts,
         checkpointer=hparams["checkpointer"],
     )
+
+    tts_brain.resample_fn = resample_fn
 
     # The `fit()` method iterates the training loop, calling the methods
     # necessary to update the parameters of the model. Since all objects
