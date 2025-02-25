@@ -97,7 +97,7 @@ betas: [0.9, 0.95]
 # Feature parameters
 sample_rate: 24000
 model_sample_rate: 24000
-max_audio_length: 2300
+max_audio_length: 4000
 text_max_length: 500
 spk_prompt_length: 150
 n_ctx: !ref <max_audio_length> + <text_max_length> + <spk_prompt_length>
@@ -160,7 +160,7 @@ nhead: 16
 num_layers_ar: 12 # @orion_step1: --num_layers_ar~"choices([6, 9, 12])"
 num_layers_nar: 12 # @orion_step1: --num_layers_nar~"choices([6, 9, 12])"
 dropout: 0.2
-vocab_size: 1024
+vocab_size: 2048
 audio_emb_freeze: False
 audio_emb_pretrained: False
 text_num_tokens: 39

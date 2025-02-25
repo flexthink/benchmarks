@@ -97,7 +97,7 @@ betas: [0.9, 0.95]
 # Feature parameters
 sample_rate: 24000
 model_sample_rate: 24000
-max_audio_length: 2300
+max_audio_length: 4000
 text_max_length: 500
 spk_prompt_length: 150
 n_ctx: !ref <max_audio_length> + <text_max_length> + <spk_prompt_length>
