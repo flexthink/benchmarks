@@ -1315,20 +1315,20 @@ if __name__ == "__main__":
     )
 
     # Load best checkpoint for evaluation
-
-    test_summary_file = Path(hparams["output_folder"]) / "eval" / "test" / "summary.json"
-    if test_summary_file.exists():
-        logging.info("Test run already completed: %s", test_summary_file)
-    else:
-        test_key_kind = hparams["test_key_kind"]
-        test_key = hparams["test_key"]
-        eval_kwargs = {
-            f"{test_key_kind}_key": test_key
-        }
-        eval_dataset = datasets["test"]
-        eval_dataset = select_eval_subset(eval_dataset, hparams)
-        tts_brain.evaluate(
-            test_set=eval_dataset,
-            test_loader_kwargs=hparams["test_dataloader_opts"],
-            **eval_kwargs
-        )
+    if hparams["testing"]:
+        test_summary_file = Path(hparams["output_folder"]) / "eval" / "test" / "summary.json"
+        if test_summary_file.exists():
+            logging.info("Test run already completed: %s", test_summary_file)
+        else:
+            test_key_kind = hparams["test_key_kind"]
+            test_key = hparams["test_key"]
+            eval_kwargs = {
+                f"{test_key_kind}_key": test_key
+            }
+            eval_dataset = datasets["test"]
+            eval_dataset = select_eval_subset(eval_dataset, hparams)
+            tts_brain.evaluate(
+                test_set=eval_dataset,
+                test_loader_kwargs=hparams["test_dataloader_opts"],
+                **eval_kwargs
+            )
