@@ -229,7 +229,7 @@ class TokotronBrain(sb.Brain):
             input_length=batch.tokens.lengths,
             reduction="batch",
         )
-        return loss_details.loss
+        return loss_details.loss.contiguous()
 
     def on_stage_start(self, stage, epoch):
         """Gets called at the beginning of each epoch.

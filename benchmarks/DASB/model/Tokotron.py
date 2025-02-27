@@ -2283,7 +2283,7 @@ def tokens_to_ternary(tokens):
 def ternary_loss(predictions, targets, length=None, reduction="mean"):
     batch_size, max_len, positions = targets.shape
     targets_cat = targets + 1
-    predictions_loss = predictions.permute(0, 3, 1, 2)
+    predictions_loss = predictions.permute(0, 3, 1, 2).contiguous()
     loss = nn.functional.nll_loss(
         predictions_loss,
         targets_cat,
