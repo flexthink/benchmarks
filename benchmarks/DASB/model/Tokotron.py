@@ -2282,35 +2282,20 @@ def tokens_to_ternary(tokens):
 
 def ternary_loss(predictions, targets, length=None, reduction="mean"):
     batch_size, max_len, positions = targets.shape
-    predictions_reshaped = (
-        predictions
-        .permute(2, 0, 1, 3)
-        .reshape(batch_size * positions, max_len, 3)
-    )
     targets_cat = targets + 1
-    targets_cat_reshaped = (
-        targets_cat
-        .permute(2, 0, 1)
-        .reshape(batch_size * positions, max_len)
+    predictions_loss = predictions.permute(0, 3, 1, 2)
+    loss = nn.functional.nll_loss(
+        predictions_loss,
+        targets_cat,
+        reduction="none"
     )
-    length_reshaped = (
-        length.unsqueeze(-1)
-        .expand(batch_size, positions)
-        .permute(1, 0)
-        .reshape(batch_size * positions)
-    )
-    loss = nll_loss(
-        log_probabilities=predictions_reshaped,
-        targets=targets_cat_reshaped,
-        length=length_reshaped,
-        reduction=reduction
-    )
-    if reduction == "batch":
-        loss = (
-            loss
-            .reshape(positions, batch_size)
-            .permute(1, 0)
-            .mean(1)
-        )
-
+    mask = length_to_mask(
+        length * max_len,
+        max_len
+    ).unsqueeze(-1)
+    loss = loss * mask
+    if reduction == "mean":
+        loss = loss.sum(2).mean(1).mean(0) / 3.0
+    elif reduction == "batch":
+        loss = loss.sum(2).mean(1) / 3.0
     return loss
