@@ -934,6 +934,7 @@ if __name__ == "__main__":
             if test_summary_file.exists():
                 logging.info("Test run already completed: %s", test_summary_file)
             else:
+                eval_kwargs = {}
                 test_key_kind = hparams["test_key_kind"]
                 test_key = hparams["test_key"]
                 if test_key:
