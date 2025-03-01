@@ -1,4 +1,5 @@
 import torch
+from speechbrain.nnet.linear import Linear
 
 
 class AttentionMLP(torch.nn.Module):
@@ -109,3 +110,57 @@ class Discrete_EmbeddingLayer(torch.nn.Module):
             if self.proj_layer is not None:
                 in_embs = self.proj_layer(in_embs)
             return in_embs
+
+
+class TernaryPredictionHead(torch.nn.Module):
+    """An alternative prediction head that predicts a fixed number of ternary digits
+    for each position (as used in SQ-Codec)
+
+    Arguments
+    ---------
+    d_model : int
+        The model dimension
+    num_positions : int
+        the number of positions
+    """
+    def __init__(self, d_model, num_positions, d_hidden=512):
+        super().__init__()
+        self.num_positions = num_positions
+        self.d_model = d_model
+        self.num_positions = num_positions
+        self.lin_hidden = Linear(
+            input_size=d_model,
+            n_neurons=d_hidden,
+        )
+        self.act = torch.nn.LeakyReLU()
+        self.lin_p = Linear(
+            input_size=d_hidden,
+            n_neurons=num_positions * 3,
+            bias=False
+        )
+
+    def forward(self, x):
+        """Computes the forward pass
+
+        Arguments
+        ---------
+        x : torch.Tensor
+            The decoder output (Batch x Length x d_model)
+
+        Returns
+        -------
+        p : torch.Tensor
+            A tensor of shape (Batch x Length x num_positions x ternary digit)
+            The values are logits (unnormalized probabilities)
+
+            p[:, :, :, 0] corresponds to -1
+            p[:, :, :, 1] corresponds to 0
+            p[:, :, :, 2] corresponds to 1
+        """
+        batch_size, max_len, _ = x.shape
+        x = self.lin_hidden(x)
+        x = self.act(x)
+        x = self.lin_p(x)
+        p = x.reshape(batch_size, max_len, self.num_positions, 3)
+        return p
+

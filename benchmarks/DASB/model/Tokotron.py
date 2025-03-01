@@ -29,7 +29,6 @@ from speechbrain.nnet.losses import kldiv_loss, mse_loss, compute_masked_loss, n
 from speechbrain.dataio.dataio import length_to_mask
 from speechbrain.utils.data_utils import concat_padded_features
 from speechbrain.nnet.schedulers import NoamScheduler
-from model.sq_codec import decimal_to_ternary_matrix
 
 from enum import Enum
 from collections import namedtuple
@@ -405,78 +404,6 @@ class TokotronTransformerDecoder(nn.Module):
             The embedding tensor with which to initialize
         """
         self.audio_emb.initialize(emb)
-
-
-class TernaryPredictionHead(nn.Module):
-    """An alternative prediction head that predicts a fixed number of ternary digits
-    for each position (as used in SQ-Codec)
-    
-    Arguments
-    ---------
-    d_model : int
-        The model dimension
-    num_positions : int
-        the number of positions
-    """
-    def __init__(self, d_model, num_positions, d_hidden=512):
-        super().__init__()
-        self.num_positions = num_positions
-        self.d_model = d_model
-        self.num_positions = num_positions
-        self.lin_hidden = Linear(
-            input_size=d_model,
-            n_neurons=d_hidden,
-        )
-        self.act = nn.LeakyReLU()
-        self.lin_p = Linear(
-            input_size=d_hidden,
-            n_neurons=num_positions * 3,
-            bias=False
-        )
-
-    def forward(self, x):
-        """Computes the forward pass
-        
-        Arguments
-        ---------
-        x : torch.Tensor
-            The decoder output (Batch x Length x d_model)
-
-        Returns
-        -------
-        p : torch.Tensor
-            A tensor of shape (Batch x Length x num_positions x ternary digit)
-            The values are logits (unnormalized probabilities)
-
-            p[:, :, :, 0] corresponds to -1
-            p[:, :, :, 1] corresponds to 0
-            p[:, :, :, 2] corresponds to 1
-        """
-        batch_size, max_len, _ = x.shape
-        x = self.lin_hidden(x)
-        x = self.act(x)
-        x = self.lin_p(x)
-        p = x.reshape(batch_size, max_len, self.num_positions, 3)
-        return p
-
-
-class TernaryInput(nn.Module):
-    def __init__(self, emb_size, num_positions):
-        super().__init__()
-        self.num_positions = num_positions
-        self.in_proj = Linear(
-            input_size=num_positions * 3,
-            n_neurons=emb_size,
-        )
-
-    def forward(self, x):
-        batch_size, max_len = x.shape[:2]
-        x_onehot = torch.nn.functional.one_hot(
-            (x + 1).long(),
-            3
-        ).reshape(batch_size, max_len, self.num_positions * 3)
-        in_proj = self.in_proj(x_onehot.float())
-        return in_proj
 
 
 class TokotronTransformerAutoregressiveInference(nn.Module):
@@ -2076,7 +2003,7 @@ def feature_pad_to(tensor, length, padding=None):
 
 
 def batch_feature_pad(tensors, padding=None):
-    """Similar to batch_pad_right but pads with the specified padding, whcih
+    """Similar to batch_pad_right but pads with the specified padding, which
     can be a vector or a tensor
 
     Arguments
@@ -2166,136 +2093,3 @@ def use_silence_padding(dataloader_opts, silence_token, token_keys):
             token_collate_fn, silence_token=silence_token, token_keys=token_keys
         ),
     }
-
-
-def logits_to_ternary(logits):
-    """Converts a tensor with two logits to a ternary matrix
-
-    Arguments
-    ---------
-    logits : torch.Tensor
-        The logits (Batch x Length x num_positions x 3)
-
-    Returns
-    -------
-    result : torch.Tensor
-        The corresponding ternary matrix
-    """
-    ternary = logits.argmax(-1) - 1
-    return ternary
-
-
-def ternary_matrix_to_decimal(matrix):
-    """
-    Convert a B*D*N ternary matrix to a 2D array of decimal numbers for each batch.
-
-    Arguments
-    ---------
-    matrix : numpy.ndarray
-        A 3D numpy array of shape (B, D, N), where B is the batch size, D is the number
-        of ternary digits, and N is the number of ternary numbers in each batch.
-
-    Returns
-    -------
-    numpy.ndarray
-        A 2D numpy array of shape (B, N), where each value represents the decimal
-        equivalent of the corresponding ternary number in the input matrix.
-    """
-    (
-        B,
-        D,
-        N,
-    ) = (
-        matrix.shape
-    )  # B is the batch size, D is the number of digits, N is the number of ternary numbers
-    powers_of_three = 3 ** torch.arange(D, device=matrix.device)  # [3^0, 3^1, ..., 3^(D-1)]
-
-    # Reshape powers_of_three for broadcasting: [D] -> [1, D, 1]
-    powers_of_three = powers_of_three[:, None]  # Shape [D, 1]
-
-    # Compute dot product using broadcasting: matrix * powers_of_three along D axis
-    decimals = torch.sum(matrix * powers_of_three, axis=1)  # Sum along the D axis
-
-    return decimals
-
-
-def ternary_to_decimal(ternary, n_codebook=4):
-    """Converts ternary digits to their decimal equivalent
-
-    Arguments
-    ---------
-    ternary : torch.Tensor
-        (Batch x Length x num_positions) - ternary digits
-    n_codebooks : torch.Tensor
-        The number of coedbooks"""
-    chunks = ternary.chunk(n_codebook, dim=1)
-    codec_ls = []
-    # TODO: Vectorize
-    for i, chunk in enumerate(chunks):
-        chunk = chunk + 1
-        tmp_codec = ternary_matrix_to_decimal(chunk)
-        codec_ls.append(tmp_codec)
-    codec_ls = torch.stack(codec_ls)
-    return codec_ls.permute(1, 2, 0)
-
-
-def ternary_logits_to_tokens(logits):
-    """Converts ternary logits to tokens (as used for SQ-Codec)
-
-    Arguments
-    ---------
-    logits : torch.Tensor
-        The logits
-
-    Returns
-    -------
-    tokens : torch.Tensor
-        Token IDs
-    """
-    ternary_matrix = logits_to_ternary(logits)
-    tokens = ternary_to_decimal(ternary_matrix.transpose(-1, -2))
-    return tokens
-
-
-def tokens_to_ternary(tokens):
-    """Converts a sequence of tokens to a ternary matrix
-    
-    Arguments
-    ---------
-    tokens : torch.Tensor
-        A (Batch x Length x Codebooks) tensor of tokens
-    
-    Returns
-    -------
-    result : torch.Tensor
-        A (Batch x Length x Ternary Positions) tensor
-        with values of (-1, 0, 1)"""
-    batch_size = tokens.size(0)
-    n_codebook = tokens.size(2)
-    tokens = tokens.view(batch_size, -1, n_codebook).permute(2, 0, 1).clone()
-    ternary_matrix = torch.cat([
-        decimal_to_ternary_matrix(item, D=9) - 1
-        for item in tokens
-    ], dim=1)
-    return ternary_matrix.transpose(1, 2)
-
-
-def ternary_loss(predictions, targets, length=None, reduction="mean"):
-    batch_size, max_len, positions = targets.shape
-    targets_cat = targets + 1
-    predictions_loss = predictions.permute(0, 3, 1, 2).contiguous()
-    loss = nn.functional.nll_loss(
-        predictions_loss,
-        targets_cat,
-        reduction="none"
-    )
-    mask = length_to_mask(
-        length * max_len,
-        max_len
-    ).unsqueeze(-1)
-    loss = loss * mask
-    if reduction == "mean":
-        loss = loss.sum(2).mean(1).mean(0) / 3.0
-    elif reduction == "batch":
-        loss = loss.sum(2).mean(1) / 3.0
-    return loss

@@ -21,6 +21,8 @@ from omegaconf import OmegaConf
 from torch.autograd import Function
 from torch.nn.utils import remove_weight_norm, weight_norm
 
+from speechbrain.dataio.dataio import length_to_mask
+
 
 class SQCodec(nn.Module):
     """
@@ -1342,6 +1344,41 @@ def ternary_matrix_to_decimal(matrix):
     return decimals
 
 
+def ternary_matrix_to_decimal_torch(matrix):
+    """
+    Convert a B*D*N ternary matrix to a 2D array of decimal numbers for each batch.
+
+    Arguments
+    ---------
+    matrix : numpy.ndarray
+        A 3D numpy array of shape (B, D, N), where B is the batch size, D is the number
+        of ternary digits, and N is the number of ternary numbers in each batch.
+
+    Returns
+    -------
+    numpy.ndarray
+        A 2D numpy array of shape (B, N), where each value represents the decimal
+        equivalent of the corresponding ternary number in the input matrix.
+    """
+    (
+        B,
+        D,
+        N,
+    ) = (
+        matrix.shape
+    )  # B is the batch size, D is the number of digits, N is the number of ternary numbers
+    powers_of_three = 3 ** torch.arange(D, device=matrix.device)  # [3^0, 3^1, ..., 3^(D-1)]
+
+    # Reshape powers_of_three for broadcasting: [D] -> [1, D, 1]
+    powers_of_three = powers_of_three[:, None]  # Shape [D, 1]
+
+    # Compute dot product using broadcasting: matrix * powers_of_three along D axis
+    decimals = torch.sum(matrix * powers_of_three, axis=1)  # Sum along the D axis
+
+    return decimals
+
+
+
 def get_padding(kernel_size, dilation=1):
     """
     Computes the padding size for a given kernel size and dilation.
@@ -1359,3 +1396,113 @@ def get_padding(kernel_size, dilation=1):
         Calculated padding size.
     """
     return int((kernel_size * dilation - dilation) / 2)
+
+
+def ternary_to_decimal(ternary, n_codebook=4):
+    """Converts ternary digits to their decimal equivalent
+
+    Arguments
+    ---------
+    ternary : torch.Tensor
+        (Batch x Length x num_positions) - ternary digits
+    n_codebooks : torch.Tensor
+        The number of codebooks
+    
+    Returns
+    -------
+    result: torch.Tensor
+        the result (Batch x Length x codebooks)
+    """
+    chunks = ternary.chunk(n_codebook, dim=1)
+    codec_ls = []
+    # TODO: Vectorize
+    for i, chunk in enumerate(chunks):
+        chunk = chunk + 1
+        tmp_codec = ternary_matrix_to_decimal_torch(chunk)
+        codec_ls.append(tmp_codec)
+    codec_ls = torch.stack(codec_ls)
+    return codec_ls.permute(1, 2, 0)
+
+
+def ternary_logits_to_tokens(logits):
+    """Converts ternary logits to tokens (as used for SQ-Codec)
+
+    Arguments
+    ---------
+    logits : torch.Tensor
+        The logits
+
+    Returns
+    -------
+    tokens : torch.Tensor
+        Token IDs
+    """
+    ternary_matrix = logits_to_ternary(logits)
+    tokens = ternary_to_decimal(ternary_matrix.transpose(-1, -2))
+    return tokens
+
+
+def tokens_to_ternary(tokens):
+    """Converts a sequence of tokens to a ternary matrix
+    
+    Arguments
+    ---------
+    tokens : torch.Tensor
+        A (Batch x Length x Codebooks) tensor of tokens
+    
+    Returns
+    -------
+    result : torch.Tensor
+        A (Batch x Length x Ternary Positions) tensor
+        with values of (-1, 0, 1)"""
+    has_batch = tokens.dim() > 2
+    if not has_batch:
+        tokens = tokens.unsqueeze(0)
+    batch_size = tokens.size(0)
+    n_codebook = tokens.size(2)
+    tokens = tokens.view(batch_size, -1, n_codebook).permute(2, 0, 1).clone()
+    ternary_matrix = torch.cat([
+        decimal_to_ternary_matrix(item, D=9) - 1
+        for item in tokens
+    ], dim=1)
+    ternary_matrix = ternary_matrix.transpose(1, 2)
+    if not has_batch:
+        ternary_matrix = ternary_matrix[0]
+    return ternary_matrix
+
+
+def logits_to_ternary(logits):
+    """Converts a tensor with two logits to a ternary matrix
+
+    Arguments
+    ---------
+    logits : torch.Tensor
+        The logits (Batch x Length x num_positions x 3)
+
+    Returns
+    -------
+    result : torch.Tensor
+        The corresponding ternary matrix
+    """
+    ternary = logits.argmax(-1) - 1
+    return ternary
+
+def ternary_loss(predictions, targets, length=None, reduction="mean"):
+    batch_size, max_len, positions = targets.shape
+    targets_cat = targets + 1
+    predictions_loss = predictions.permute(0, 3, 1, 2).contiguous()
+    loss = nn.functional.nll_loss(
+        predictions_loss,
+        targets_cat,
+        reduction="none"
+    )
+    mask = length_to_mask(
+        length * max_len,
+        max_len
+    ).unsqueeze(-1)
+    loss = loss * mask
+    if reduction == "mean":
+        loss = loss.sum(2).mean(1).mean(0) / 3.0
+    elif reduction == "batch":
+        loss = loss.sum(2).mean(1) / 3.0
+    return loss

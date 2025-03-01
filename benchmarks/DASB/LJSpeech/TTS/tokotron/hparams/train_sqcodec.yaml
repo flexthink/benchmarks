@@ -110,8 +110,6 @@ gate_offset: !apply:model.Tokotron.distance_diff_loss_ramp
     gamma: !ref <gate_loss_gamma>
     max_weight: !ref <gate_loss_max_weight>
 
-ternary_input_mode: embedding
-
 silence_padding: !ref <gate_offset>
 
 # Token model (pretrained)
@@ -145,7 +143,7 @@ sample_dataloader_opts:
         padding_kwargs:
             value: !ref <pad_index>
 
-transform_audio: !name:model.Tokotron.tokens_to_ternary
+transform_audio: !name:model.sq_codec.tokens_to_ternary
 
 ####################### Model parameters ###########################
 # Transformer
@@ -158,11 +156,7 @@ transformer_dropout: 0.2
 target_dropout: 0.2
 activation: !name:torch.nn.GELU
 audio_num_tokens: 19683
-audio_emb_size: !apply:speechbrain.utils.hparams.choice
-    value: !ref <ternary_input_mode>
-    choices:
-        embedding: 36
-        projection: 1024
+audio_emb_size:  36
 audio_emb_freeze: False
 audio_emb_pretrained: False
 audio_token_offsets: False
@@ -213,18 +207,12 @@ inference: !new:model.Tokotron.TokotronTransformerAutoregressiveInference
     audio_token_shift: 0
     max_steps: !ref <infer_max_audio_length>
     representation_mode: !ref <representation_mode>
-    transform_audio: !name:model.Tokotron.tokens_to_ternary
-    feed_audio: !name:model.Tokotron.ternary_logits_to_tokens
+    transform_audio: !name:model.sq_codec.tokens_to_ternary
+    feed_audio: !name:model.sq_codec.ternary_logits_to_tokens
 
-audio_emb: !apply:speechbrain.utils.hparams.choice
-    value: !ref <ternary_input_mode>
-    choices:
-        projection: !new:model.Tokotron.TernaryInput
-            emb_size: !ref <audio_emb_size>
-            num_positions: !ref <ternary_num_positions>
-        embedding: !new:torch.nn.Identity
+audio_emb: !new:torch.nn.Identity
 
-out_proj: !new:model.Tokotron.TernaryPredictionHead
+out_proj: !new:model.custom_model.TernaryPredictionHead
     d_model: !ref <d_model>
     num_positions: !ref <ternary_num_positions>
 
@@ -249,7 +237,7 @@ compute_cost: !new:model.Tokotron.TokotronLoss
     gate_gamma: !ref <gate_loss_gamma>
     gate_max_weight: !ref <gate_loss_max_weight>
     silence_padding: !ref <silence_padding>
-    seq_cost: !name:model.Tokotron.ternary_loss
+    seq_cost: !name:model.sq_codec.ternary_loss
     multihead_output: False
 
 lr_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
