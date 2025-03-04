@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.dataio.dataio import (
-    clean_padding_,
+    clean_padding,
     length_to_mask,
     write_audio,
 )
@@ -84,7 +84,7 @@ class VALLEBrain(sb.Brain):
         wav = tokenizer.tokens_to_sig(
             audio, **self.token_model_kwargs
         )
-        clean_padding_(wav, length)
+        wav = clean_padding(wav, length)
         wav = wav.to(self.device)
         return wav
 
