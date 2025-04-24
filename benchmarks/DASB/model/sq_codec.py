@@ -1547,7 +1547,7 @@ def ternary_loss(predictions, targets, length=None, mask=None, targets_type="ter
     if mask is not None:
         loss = loss * mask
     if reduction == "mean":
-        loss = loss.sum(2).sum(1).sum(0) / mask.sum()
+        loss = loss.sum(2).sum(1).sum(0) / mask.sum() / 3.0
     elif reduction == "batch":
-        loss = loss.sum(2).sum(1) / mask.sum(-1).sum(-1)
+        loss = loss.sum(2).sum(1) / mask.sum(-1).sum(-1) / 3.0
     return loss
