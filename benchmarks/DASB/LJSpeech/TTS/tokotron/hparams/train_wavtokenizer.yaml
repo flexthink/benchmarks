@@ -48,6 +48,7 @@ tokens_loader: !new:utils.tokens.TokensLoader
 
 
 splits: ["train", "valid", "test"]
+split_ratio: [90, 5, 5]
 ckpt_key: dwer
 ckpt_key_kind: min
 ckpt_keep: 2
