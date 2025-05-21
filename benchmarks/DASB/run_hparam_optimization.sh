@@ -290,10 +290,6 @@ get_flag() {
     local pattern="$2"
     local filter="$3"
 
-    if [[ -z "$filter" ]]; then
-      filter=".*"
-    fi
-
     # Check if the file exists
     if [ ! -f "$file_path" ]; then
         echo "Error: File '$file_path' not found."
@@ -301,7 +297,7 @@ get_flag() {
     fi
 
     # Use grep to find all lines containing the pattern and then extract the flags using sed
-    grep -o "$pattern.*" "$file_path" | sed "s/$pattern//" | grep $filter | tr -d '\n'
+    grep -o "$pattern.*" "$file_path" | sed "s/$pattern//" | grep "$filter" | tr -d '\n'
 }
 
 
