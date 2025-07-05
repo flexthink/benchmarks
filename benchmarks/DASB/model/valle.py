@@ -48,6 +48,7 @@ class SpeechLMInferenceOptions:
     search_algo: str = "topk_sampling"
     nbest: int = 1
     nbest_chunks: int = None
+    clear_cache: bool = False
     sampling_temperature: float = 1.0
     top_k: int = 20
     maxlenratio: float = 0.0
@@ -351,9 +352,6 @@ class ValleLM(nn.Module):
         modality_tokens = torch.tensor(
             list(opts.masks.keys()), device=prefix.device
         )
-        if is_cuda:
-            torch.cuda.empty_cache()
-
         for step in range(maxlen):
             #  (3.2) AR loop
             if is_flattened:
@@ -420,9 +418,8 @@ class ValleLM(nn.Module):
                 )
 
         logging.info(f"Terminate at steps: {finish_idx.cpu().tolist()}")
-        if is_cuda:
+        if is_cuda and opts.clear_cache:
             torch.cuda.empty_cache()
-        
 
         # (3.4) finalize auto-regressive
         if opts.allow_invalid:
@@ -485,7 +482,7 @@ class ValleLM(nn.Module):
                 h_nar = self.nar_decoder(
                     prev_emb, ones * step - 1, mask=mask
                 )  # [B, T, D]
-                
+
                 logits = self.apply_lm_head(h_nar, step)
                 logits = self.logits_to_probs(logits)
                 gen_tok, gen_score = logits_to_tokens(
@@ -510,7 +507,7 @@ class ValleLM(nn.Module):
                     prev_tok = generated["token"][-1]
                 prev_emb[:, prefix.size(1) :] += self.emb(prev_tok)  # [B, T, D]
                 prev_emb[:, prefix.size(1) - 1 : prefix.size(1)] += start_emb
-                if is_cuda:
+                if is_cuda and opts.clear_cache:
                     torch.cuda.empty_cache()
 
             # (5) combine AR and NAR results
@@ -531,7 +528,7 @@ class ValleLM(nn.Module):
             gen_tokens_list.append(gen_tokens[b][:item_finish_idx])
             gen_scores_list.append(gen_scores[b][:item_finish_idx])
 
-        if is_cuda:
+        if is_cuda and opts.clear_cache:
             torch.cuda.empty_cache()
 
         return gen_tokens_list, gen_scores_list
