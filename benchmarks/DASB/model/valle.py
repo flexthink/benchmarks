@@ -13,6 +13,7 @@ Authors
 # Implementation of Vall-E: https://arxiv.org/abs/2301.02111
 
 from io import StringIO
+import copy
 import logging
 import re
 import string
@@ -46,6 +47,7 @@ class SpeechLMInferenceOptions:
     device: str = None
     search_algo: str = "topk_sampling"
     nbest: int = 1
+    nbest_chunks: int = None
     sampling_temperature: float = 1.0
     top_k: int = 20
     maxlenratio: float = 0.0
@@ -254,10 +256,9 @@ class ValleLM(nn.Module):
         # (3) mask and then sum in nq-axis.
         mask = torch.logical_or(level_mask, prefix_mask)
         return dec_seq_emb.masked_fill(~mask, 0.0).sum(2)
-
-    @torch.inference_mode()
+    
     def inference(
-        self, prefix, opts, enc_seq=None, suffix=None,
+        self, prefix, opts, enc_seq=None, suffix=None,        
     ):
         """Vall-E Inference.
 
@@ -280,7 +281,29 @@ class ValleLM(nn.Module):
         gen_scores_list : list
             The scores associated with the generated tokens
         """
+        if opts.nbest_chunks is None:
+            return self._inference(prefix, opts, enc_seq, suffix)
+        else:
+            chunk_nbest = opts.nbest // opts.nbest_chunks
+            chunk_opts = copy.copy(opts)
+            chunk_opts.nbest = chunk_nbest
+            chunks = [
+                self._inference(prefix, chunk_opts, enc_seq, suffix)
+                for _ in range(opts.nbest_chunks)
+            ]
+            return self._merge_chunks(chunks)
 
+    def _merge_chunks(self, chunks):
+        gen_tokens_list, gen_scores_list = [], []
+        for chunk_gen_tokens_list, chunk_gen_scores_list in chunks:
+            gen_tokens_list.extend(chunk_gen_tokens_list)
+            gen_scores_list.extend(chunk_gen_scores_list)
+        return gen_tokens_list, gen_scores_list
+
+    @torch.inference_mode()
+    def _inference(
+        self, prefix, opts, enc_seq=None, suffix=None,
+    ):
         # (1) initialization
         cache = self.ar_decoder.init()
         is_cuda = prefix.device.type == "cuda"

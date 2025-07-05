@@ -110,6 +110,7 @@ n_ctx: !ref <max_audio_length> + <text_max_length> + <spk_prompt_length>
 infer_max_audio_length: !ref <max_audio_length>
 max_length_ratio: 10.0
 inference_nbest: 1
+inference_nbest_chunks: null
 inference_sampling_temperature: 1.0
 inference_top_k: 20
 debug_infer_max_audio_length: 10
@@ -229,6 +230,7 @@ inference_opts: !name:model.valle.SpeechLMInferenceOptions
     maxlenratio: !ref <max_length_ratio>
     nq: !ref <audio_tokens_per_step>
     nbest: !ref <inference_nbest>
+    nbest_chunks: !ref <inference_nbest_chunks>
     sampling_temperature: !ref <inference_sampling_temperature>
     top_k: !ref <inference_top_k>
 
