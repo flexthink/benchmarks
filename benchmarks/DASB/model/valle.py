@@ -255,7 +255,7 @@ class ValleLM(nn.Module):
         mask = torch.logical_or(level_mask, prefix_mask)
         return dec_seq_emb.masked_fill(~mask, 0.0).sum(2)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def inference(
         self, prefix, opts, enc_seq=None, suffix=None,
     ):
