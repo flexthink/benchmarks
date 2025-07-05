@@ -283,6 +283,7 @@ class ValleLM(nn.Module):
 
         # (1) initialization
         cache = self.ar_decoder.init()
+        is_cuda = prefix.device.type == "cuda"
 
         # (2) auto-regressive prefix forward on first code layer
         prefix = prefix.expand(opts.nbest, -1, -1)
@@ -327,6 +328,8 @@ class ValleLM(nn.Module):
         modality_tokens = torch.tensor(
             list(opts.masks.keys()), device=prefix.device
         )
+        if is_cuda:
+            torch.cuda.empty_cache()
 
         for step in range(maxlen):
             #  (3.2) AR loop
@@ -394,6 +397,9 @@ class ValleLM(nn.Module):
                 )
 
         logging.info(f"Terminate at steps: {finish_idx.cpu().tolist()}")
+        if is_cuda:
+            torch.cuda.empty_cache()
+        
 
         # (3.4) finalize auto-regressive
         if opts.allow_invalid:
@@ -481,6 +487,8 @@ class ValleLM(nn.Module):
                     prev_tok = generated["token"][-1]
                 prev_emb[:, prefix.size(1) :] += self.emb(prev_tok)  # [B, T, D]
                 prev_emb[:, prefix.size(1) - 1 : prefix.size(1)] += start_emb
+                if is_cuda:
+                    torch.cuda.empty_cache()
 
             # (5) combine AR and NAR results
             gen_tokens_nar = torch.stack(generated["token"], dim=2)  # [B, T, nq]
@@ -499,6 +507,10 @@ class ValleLM(nn.Module):
             item_finish_idx = finish_idx[b]
             gen_tokens_list.append(gen_tokens[b][:item_finish_idx])
             gen_scores_list.append(gen_scores[b][:item_finish_idx])
+
+        if is_cuda:
+            torch.cuda.empty_cache()
+
         return gen_tokens_list, gen_scores_list
 
     def apply_lm_head(self, x, track):
