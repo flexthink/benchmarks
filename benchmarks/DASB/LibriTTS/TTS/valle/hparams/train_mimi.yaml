@@ -232,7 +232,6 @@ inference_opts: !name:model.valle.SpeechLMInferenceOptions
     nbest: !ref <inference_nbest>
     nbest_chunks: !ref <inference_nbest_chunks>
     clear_cache: !ref <inference_clear_cache>
-    clear_cache: !ref <inference_clear_cache>
     sampling_temperature: !ref <inference_sampling_temperature>
     top_k: !ref <inference_top_k>
 
