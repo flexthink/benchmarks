@@ -503,11 +503,22 @@ class VALLEBrain(sb.Brain):
             else self.modules.model.inference
         )
         logger.info("Running inference")
+        dummy = torch.zeros(
+            (100, self.modules.model.nq),
+            dtype=int,
+            device=prefix.device
+        )
+        dummy_scores = torch.ones(
+            (100,),
+            dtype=int,
+            device=prefix.device
+        )
         inference_results = [
             inference(
                 prefix=prefix_item.unsqueeze(0), opts=self._get_inference_opts()
-            )
-            for prefix_item in prefix_items
+            ) if self._should_evaluate(uttid)
+            else (dummy, dummy_scores)
+            for uttid, prefix_item in zip(batch.uttid, prefix_items)
         ]
         logger.info("Running selection")
         inference_results = [
@@ -516,7 +527,9 @@ class VALLEBrain(sb.Brain):
                 scores,
                 label
             )
-            for (tokens, scores), label in zip(inference_results, batch.label_norm_eval)
+            if self._should_evaluate(uttid)
+            else tokens
+            for (tokens, scores), label, uttid in zip(inference_results, batch.label_norm_eval, batch.uttid)
         ]
         inferred_tokens = [
             self._pad_inferred_sample(result)
@@ -526,6 +539,13 @@ class VALLEBrain(sb.Brain):
         audio_length = audio_length.to(self.device)
         audio = (audio - hparams["audio_token_shift"] - self.offsets).clip(0)
         return audio, audio_length
+
+    def _should_evaluate(self, uttid):
+        return (
+            not self.evaluation_metric.is_processed(uttid)
+            if self.hparams.eval_enable_resume
+            else True
+        )
 
     def _pad_inferred_sample(self, result):
         """Applies length padding to an inference result
@@ -589,8 +609,11 @@ class VALLEBrain(sb.Brain):
         output_folder = self._get_eval_output_folder(stage)
         samples = undo_padding_tensor(wav, length)
         for uttid, sample in zip(batch.uttid, samples):
-            file_name = output_folder / f"pred_{uttid}.wav"
-            write_audio(file_name, sample.cpu(), self.hparams.model_sample_rate)
+            if self._should_evaluate(uttid):
+                file_name = output_folder / f"pred_{uttid}.wav"
+                write_audio(file_name, sample.cpu(), self.hparams.model_sample_rate)
+            else:
+                logger.info("%s already evaluated", uttid)
 
     def save_eval(self, stage):
         """Saves evaluation results
@@ -785,7 +808,6 @@ def dataio_prepare(hparams):
         num_codebooks = layer_idx
     else:
         num_codebooks = hparams["audio_tokens_per_step"]
-
 
     @sb.utils.data_pipeline.takes("label")
     @sb.utils.data_pipeline.provides("label_norm", "label_norm_eval")

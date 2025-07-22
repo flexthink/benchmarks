@@ -212,6 +212,11 @@ class SpeechEvaluator:
         """Invoked when evaluation ends"""
         pass
 
+    def resume_item(self, details):
+        """Updates internal structures (such as error trackers) to reflect
+        the given item having been evaluated"""
+        pass
+
     def global_metrics(self):
         return {}
 
@@ -264,6 +269,7 @@ class ASRSpeechEvaluator(SpeechEvaluator):
         super().__init__(sample_rate=sample_rate)
         self.metric_mode = metric_mode
         self.metrics = {}
+        self.device = None
 
     def on_evaluation_start(self):
         self.metrics = {}
@@ -332,7 +338,7 @@ class ASRSpeechEvaluator(SpeechEvaluator):
 
         return SpeechEvaluationResult(score=details["wer"], details=details,)
 
-    def compute_diff_rate(self, details, device):
+    def compute_diff_rate(self, details, device=None):
         """Computes the differential token rate
 
         Arguments
@@ -355,6 +361,8 @@ class ASRSpeechEvaluator(SpeechEvaluator):
                 The differential Character Error Rate (dCER)
 
         """
+        if device is None:
+            device = self.device
         ids = range(1, len(details["pred"]) + 1)
         wer_metric, cer_metric = self.get_asr_metrics("diff")
         pred = self._replace_blanks(details["pred"])
@@ -403,6 +411,23 @@ class ASRSpeechEvaluator(SpeechEvaluator):
                 global_metrics["dwer_micro"] = dwer_metric.summarize("WER")
                 global_metrics["dcer_micro"] = dcer_metric.summarize("WER")
         return global_metrics
+
+    def resume_item(self, details):
+        """Updates internal structures (such as error trackers) to reflect
+        the given item having been evaluated"""
+        details = self._batchify_details(details)
+        self.compute_diff_rate(details=details, device=self.device)
+        wer_metric, cer_metric = self.get_asr_metrics("regular")
+        ids = [0]  # NOTE: Dummy
+        predicted_words = details["pred"]
+        text = details["target"]
+        predicted_words_split = [item.split(" ") for item in predicted_words]
+        text_split = [item.split(" ") for item in text]
+        wer_metric.append(ids, predicted_words_split, text_split)
+        cer_metric.append(ids, predicted_words_split, text_split)
+
+    def _batchify_details(self, details):
+        return {key: [value] for key, value in details.items()}
 
 
 class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
@@ -457,6 +482,7 @@ class WhisperASRSpeechEvaluator(ASRSpeechEvaluator):
             max_decode_ratio=max_decode_ratio,
         )
         device = run_opts.get("device", next(self.model.parameters()).device)
+        self.device = device
         self.unbatch = unbatch
         self.to(device)
 

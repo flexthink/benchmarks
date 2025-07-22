@@ -3,6 +3,7 @@ import torch
 import logging
 import re
 import csv
+from speechbrain.utils.data_utils import batch_pad_right
 from speechbrain.utils.metric_stats import MetricStats
 from types import SimpleNamespace
 from pathlib import Path
@@ -49,6 +50,8 @@ class SpeechEvaluationMetricStats(MetricStats):
                 "No evaluators were defined - this run will produce samples only"
             )
 
+        self.enable_resume = getattr(hparams, "eval_enable_resume", True)
+
     def on_evaluation_start(self, output_folder="eval"):
         """Invoked at the beginning of the evaluation cycle.
 
@@ -58,6 +61,7 @@ class SpeechEvaluationMetricStats(MetricStats):
             The folder to which results will be output
 
         """
+
         logger.info("Starting evaluation")
         output_folder = Path(output_folder)
         self.output_folder = (
@@ -70,9 +74,10 @@ class SpeechEvaluationMetricStats(MetricStats):
         self.files = []
         details_keys = list(self.evaluators.keys())
         self.details = {evaluator_key: [] for evaluator_key in details_keys}
+        self.item_ids = []
+        self.item_ids_set = set([])
         self.read_reports()
         self.create_reports()
-        self.item_ids = []
         for evaluator_key in self.enabled_evaluators:
             self.evaluators[evaluator_key].on_evaluation_start()
 
@@ -103,19 +108,56 @@ class SpeechEvaluationMetricStats(MetricStats):
 
     def read_reports(self):
         """Invoked when resuming"""
+        evaluator_details = {
+            key: {}
+            for key in self.enabled_evaluators
+        }
+        item_ids_set = set([])
+        item_id_evaluators = {}
+        item_ids = []
+
         for evaluator_key in self.enabled_evaluators:
             file_name = self.output_folder / f"{evaluator_key}.csv"
+            evaluator = self.evaluators[evaluator_key]
             if file_name.exists():
-                logger.info("%s exists, reading")
+                logger.info("%s exists, reading", file_name)
                 with open(file_name) as report_file:
                     reader = csv.DictReader(report_file)
                     for row in reader:
+                        uttid = row["uttid"]
+                        if uttid not in item_ids_set:
+                            item_ids.append(uttid)
+                        item_ids_set.add(uttid)
+                        if uttid not in item_id_evaluators:
+                            item_id_evaluators[uttid] = set([])
+                        item_id_evaluators[uttid].add(evaluator_key)
                         del row["uttid"]
                         row = {
                             key: handle_number(value)
                             for key, value in row.items()
                         }
-                        self.details[evaluator_key].append(row)
+                        if uttid not in evaluator_details[evaluator_key]:
+                            evaluator_details[evaluator_key][uttid] = row
+        all_evals = set(self.enabled_evaluators)
+        incomplete = {
+            uttid
+            for uttid, evals in item_id_evaluators.items()
+            if evals != all_evals
+        }
+        item_ids = [uttid for uttid in item_ids if uttid not in incomplete]
+        item_ids_set.difference_update(incomplete)
+        self.item_ids.extend(item_ids)
+        self.item_ids_set |= item_ids_set
+        for evaluator_key in self.enabled_evaluators:
+            evaluator = self.evaluators[evaluator_key]
+            for uttid in item_ids:
+                item_details = evaluator_details[evaluator_key][uttid]
+                self.details[evaluator_key].append(item_details)
+                if self.enable_resume:
+                    evaluator.resume_item(item_details)
+
+    def is_processed(self, item_id):
+        return item_id in self.item_ids_set
 
     def get_tracker_file_name(self):
         """Determines the file name of the tracker file"""
@@ -170,6 +212,15 @@ class SpeechEvaluationMetricStats(MetricStats):
             Reference lengths
         """
         with torch.no_grad():
+            if self.enable_resume:
+                (
+                    ids, wav, length, text, wav_ref, length_ref
+                ) = self._filter_unprocessed(
+                    ids, wav, length, text, wav_ref, length_ref
+                )
+                if not ids:
+                    return
+
             self.item_ids.extend(ids)
             for evaluator_key, evaluator in self.evaluators.items():
                 result = evaluator.evaluate(
@@ -184,6 +235,14 @@ class SpeechEvaluationMetricStats(MetricStats):
                 details = undo_batch(result.details)
                 self.write_result(evaluator_key, ids, details)
                 self.details[evaluator_key].extend(details)
+    
+    def _filter_unprocessed(self, ids, wav, length, text, wav_ref, length_ref):
+        indexes = [idx for idx, item_id in enumerate(ids) if item_id not in self.item_ids]
+        ids = [ids[idx] for idx in indexes]
+        wav, length = rebatch(indexes, wav, length)
+        text = [text[idx] for idx in indexes]
+        wav_ref, length_ref = rebatch(indexes, wav_ref, length_ref)
+        return ids, wav, length, text, wav_ref, length_ref
 
     def write_result(self, evaluator_key, ids, details):
         """Outputs the result details to the report for the specified evaluator
@@ -261,6 +320,55 @@ class SpeechEvaluationMetricStats(MetricStats):
 
 
 RE_NON_ASCII = re.compile(r"[^\x00-\x7F]+")
+
+
+def rebatch(indexes, batch, lengths):
+    if batch is None:
+        return batch, lengths
+    if not indexes:
+        return (
+            torch.tensor([], dtype=batch.dtype, device=batch.device),
+            torch.tensor([], dtype=lengths.dtype, device=lengths.device),
+        )
+
+    batch = undo_padding_tensor(batch, lengths)
+    filtered_batch = [batch[idx] for idx in indexes]
+    return batch_pad_right(filtered_batch)
+
+
+# TODO: This is repeated in several places, consolidate
+def undo_padding_tensor(batch, lengths):
+    """Produces Python lists given a batch of sentences with
+    their corresponding relative lengths.
+
+    Arguments
+    ---------
+    batch : torch.Tensor
+        Batch of sentences gathered in a batch.
+    lengths : torch.Tensor
+        Relative length of each sentence in the batch.
+
+    Returns
+    -------
+    as_list : list
+        A python list of the corresponding input tensor.
+
+    Example
+    -------
+    >>> batch=torch.rand([4,100])
+    >>> lengths=torch.tensor([0.5,0.6,0.7,1.0])
+    >>> snt_list=undo_padding(batch, lengths)
+    >>> len(snt_list)
+    4
+    """
+    batch_max_len = batch.shape[1]
+    as_list = []
+    for seq, seq_length in zip(batch, lengths):
+        actual_size = int(torch.round(seq_length * batch_max_len))
+        seq_true = seq.narrow(0, 0, actual_size)
+        as_list.append(seq_true)
+    return as_list
+
 
 
 def ascii_only(values):

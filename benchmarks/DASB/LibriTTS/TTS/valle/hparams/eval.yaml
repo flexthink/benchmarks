@@ -20,6 +20,7 @@ eval_utmos_model_url: https://huggingface.co/chaanks/UTMOS/resolve/main
 eval_utmos_domain_id: null
 eval_utmos_judge_id: null
 eval_perf: False
+eval_enable_resume: False
 
 # Inference Fit
 inference_fit_top_k: [10, 20, 30]
