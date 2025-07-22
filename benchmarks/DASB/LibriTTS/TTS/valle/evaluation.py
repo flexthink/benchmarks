@@ -331,9 +331,13 @@ def rebatch(indexes, batch, lengths):
             torch.tensor([], dtype=lengths.dtype, device=lengths.device),
         )
 
+    device = batch.device
     batch = undo_padding_tensor(batch, lengths)
     filtered_batch = [batch[idx] for idx in indexes]
-    return batch_pad_right(filtered_batch)
+    items, lengths = batch_pad_right(filtered_batch)
+    items = items.to(device)
+    lengths = lengths.to(device)
+    return items, lengths
 
 
 # TODO: This is repeated in several places, consolidate
