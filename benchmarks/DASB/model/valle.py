@@ -1385,6 +1385,7 @@ class WhisperASRSampleSelector(SampleSelector):
             tokenizer.codec_vocoder.device = device
 
     def select(self, tokens, scores, text):
+        tokens_orig = tokens
         tokens, length = batch_pad_right(tokens)
         tokens_shift = tokens - self.token_shift
         if self.offsets is not None:
@@ -1415,7 +1416,7 @@ class WhisperASRSampleSelector(SampleSelector):
             sio = StringIO()
             metric.write_stats(sio)
             logger.info("%s", sio.getvalue())
-        return tokens[idx]
+        return tokens_orig[idx]
 
     def predict(self, wav):
         if wav.dim() < 2:
